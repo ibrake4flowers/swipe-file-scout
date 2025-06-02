@@ -252,28 +252,38 @@ def reddit_insight():
 
         headers = {"Authorization": f"bearer {token}", "User-Agent": "swipebot"}
 
-        # More specific searches for actual Coursera success stories
+        # COMPLETELY REDESIGNED searches - separate what we WANT from what we FIND
         searches = [
+            # EXPLICIT success stories with Coursera mentions ONLY
             {
                 "subreddit": "Coursera",
-                "query": "got%20hired%20after|landed%20job%20coursera|career%20success%20coursera",
+                "query": "got%20hired%20coursera|landed%20job%20coursera|coursera%20helped%20career",
                 "type": "testimonial",
                 "min_ups": 3,
-                "min_sentiment": 0.3
+                "min_sentiment": 0.4
             },
             {
                 "subreddit": "ITCareerQuestions",
-                "query": "google%20certificate%20hired|coursera%20got%20job",
+                "query": "google%20certificate%20hired|google%20it%20support%20job|coursera%20certificate%20job",
                 "type": "testimonial", 
                 "min_ups": 5,
-                "min_sentiment": 0.2
+                "min_sentiment": 0.3
             },
+            # EXPLICIT pain points - but search for them ON PURPOSE
             {
                 "subreddit": "ITCareerQuestions",
-                "query": "can't%20find%20job|struggling%20entry%20level|hard%20to%20find%20work",
+                "query": "why%20is%20it%20so%20hard|can't%20find%20entry%20level|struggling%20find%20job",
                 "type": "pain_point",
-                "min_ups": 50,  # Higher threshold for generic pain points
-                "min_sentiment": -0.2
+                "min_ups": 50,
+                "min_sentiment": -0.5  # Should be negative for pain points
+            },
+            # Course completions in learning subreddits
+            {
+                "subreddit": "learnprogramming",
+                "query": "completed%20coursera|finished%20coursera|coursera%20certificate%20earned",
+                "type": "course_rec",
+                "min_ups": 10,
+                "min_sentiment": 0.3
             }
         ]
 
@@ -298,13 +308,22 @@ def reddit_insight():
                     selftext = data.get("selftext", "")
                     ups = data.get("ups", 0)
                     
-                    # Use our enhanced classification
+                    # DEBUG: Log what we found and how we classified it
                     actual_type, confidence = classify_reddit_content(title, selftext)
                     
-                    logger.debug(f"Post '{title[:50]}...' classified as {actual_type} (confidence: {confidence})")
+                    logger.info(f"FOUND: '{title[:60]}...'")
+                    logger.info(f"  SEARCHED FOR: {search['type']}")
+                    logger.info(f"  CLASSIFIED AS: {actual_type} (confidence: {confidence})")
+                    logger.info(f"  MATCH: {actual_type == search['type']}")
                     
-                    # STRICT matching - only accept if classification matches AND high confidence
-                    if actual_type != search["type"] or confidence < 0.7:
+                    # STRICT: Only accept if our search intent matches the classification
+                    if actual_type != search["type"]:
+                        logger.info(f"  REJECTED: Search wanted {search['type']}, got {actual_type}")
+                        continue
+                    
+                    # Additional confidence check
+                    if confidence < 0.7:
+                        logger.info(f"  REJECTED: Low confidence {confidence}")
                         continue
                     
                     if ups < search["min_ups"]:
