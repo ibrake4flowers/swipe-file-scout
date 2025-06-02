@@ -92,7 +92,7 @@ def fresh_spin():
     return None      # if neither condition hits, nothing gets added
 
 # ---------- assemble & post ----------
-blocks = [meta_ad(), reddit_story(), fresh_spin(), catalog_pulse()]
+blocks = [meta_ad(), reddit_story()
 digest  = "\n\n".join([b for b in blocks if b])
 
 # ---------- helpers to send ----------
