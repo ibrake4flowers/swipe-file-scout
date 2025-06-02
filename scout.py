@@ -231,7 +231,7 @@ def meta_ad():
         return (
             f"*🎯 Premium Brand Inspiration ({brand})*\n"
             f"• **Search term:** {search_term}\n"
-            f"• **Impressions:** {impressions:,} (lower bound)\n"
+            f"• **Impressions:** {impressions} (lower bound)\n"
             f"• **Hook:** {creative_body}{'...' if len(creative_body) == 150 else ''}\n"
             f"• [Watch Ad Preview]({snapshot})"
         )
@@ -519,45 +519,6 @@ def format_digest(blocks):
     
     return "\n\n".join(formatted_blocks)
 
-# ---------- assemble & post ----------
-def main():
-    """Main execution function with better logging"""
-    logger.info("Starting Swipe-File Scout...")
-    
-    # Gather insights
-    blocks = [
-        meta_ad(),
-        reddit_insight(),
-        reddit_story()
-    ]
-
-    # Count successful fetches
-    successful_blocks = [b for b in blocks if b is not None]
-    logger.info(f"Successfully fetched {len(successful_blocks)}/3 content blocks")
-
-    # Create digest
-    digest = format_digest(blocks)
-    
-    # Add fallback if everything failed
-    if not digest:
-        digest = fallback_content()
-        logger.warning("Using fallback content - all APIs failed")
-
-    # Send digest
-    if digest:
-        timestamp = datetime.date.today().strftime("%Y-%m-%d")
-        full_msg = f"▶️ Swipe-file digest ({timestamp})\n\n" + digest
-
-        # Try Slack first; if that fails, fall back to email
-        if send_slack(full_msg):
-            logger.info("Digest sent via Slack")
-        elif send_email(full_msg):
-            logger.info("Digest sent via email")
-        else:
-            logger.error("Failed to send digest via both Slack and email")
-    else:
-        logger.warning("No digest content generated")
-
 def send_slack(msg: str) -> bool:
     """Send message to Slack"""
     hook = os.getenv("SLACK_WEBHOOK", "").strip()
@@ -601,6 +562,45 @@ def send_email(msg: str) -> bool:
     except Exception as e:
         logger.error(f"Email send failed: {e}")
         return False
+
+# ---------- assemble & post ----------
+def main():
+    """Main execution function with better logging"""
+    logger.info("Starting Swipe-File Scout...")
+    
+    # Gather insights
+    blocks = [
+        meta_ad(),
+        reddit_insight(),
+        reddit_story()
+    ]
+
+    # Count successful fetches
+    successful_blocks = [b for b in blocks if b is not None]
+    logger.info(f"Successfully fetched {len(successful_blocks)}/3 content blocks")
+
+    # Create digest
+    digest = format_digest(blocks)
+    
+    # Add fallback if everything failed
+    if not digest:
+        digest = fallback_content()
+        logger.warning("Using fallback content - all APIs failed")
+
+    # Send digest
+    if digest:
+        timestamp = datetime.date.today().strftime("%Y-%m-%d")
+        full_msg = f"▶️ Swipe-file digest ({timestamp})\n\n" + digest
+
+        # Try Slack first; if that fails, fall back to email
+        if send_slack(full_msg):
+            logger.info("Digest sent via Slack")
+        elif send_email(full_msg):
+            logger.info("Digest sent via email")
+        else:
+            logger.error("Failed to send digest via both Slack and email")
+    else:
+        logger.warning("No digest content generated")
 
 # Run the main function
 if __name__ == "__main__":
