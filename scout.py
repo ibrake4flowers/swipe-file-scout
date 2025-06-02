@@ -299,8 +299,52 @@ def reddit_insights():
 
     return safe_api_call("reddit_insights", _fetch_reddit)
 
+def send_slack(msg):
+    """Send message to Slack"""
+    hook = os.getenv("SLACK_WEBHOOK", "").strip()
+    if hook:
+        try:
+            response = requests.post(
+                hook, 
+                data=json.dumps({"text": msg}), 
+                headers={"Content-Type": "application/json"},
+                timeout=10
+            )
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Slack send failed: {e}")
+            return False
+    return False
+
+def send_email(msg):
+    """Send message via email"""
+    user = os.getenv("EMAIL_FROM", "").strip()
+    pwd = os.getenv("EMAIL_PW", "").strip()
+    to = os.getenv("EMAIL_TO", "").strip()
+
+    if not (user and pwd and to):
+        return False
+
+    try:
+        import email.message
+        import smtplib
+
+        email_msg = email.message.EmailMessage()
+        email_msg["Subject"] = f"Coursera Ad Digest - {datetime.date.today()}"
+        email_msg["From"] = user
+        email_msg["To"] = to
+        email_msg.set_content(msg)
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(user, pwd)
+            smtp.send_message(email_msg)
+        return True
+    except Exception as e:
+        logger.error(f"Email send failed: {e}")
+        return False
+
 def main():
-    logger.info("Starting Simple Scout...")
+    logger.info("Starting Swipe-File Scout...")
     
     # Get content
     meta_content = meta_ad()
@@ -323,21 +367,15 @@ def main():
     timestamp = datetime.date.today().strftime('%B %d, %Y')
     full_msg = f"COURSERA AD DIGEST | {timestamp}" + digest
     
-    # Send to Slack
-    hook = os.getenv("SLACK_WEBHOOK", "").strip()
-    if hook:
-        try:
-            requests.post(
-                hook, 
-                data=json.dumps({"text": full_msg}), 
-                headers={"Content-Type": "application/json"},
-                timeout=10
-            )
-            logger.info("Sent to Slack")
-        except Exception as e:
-            logger.error(f"Slack failed: {e}")
+    # Try Slack first, then email
+    if send_slack(full_msg):
+        logger.info("Digest sent via Slack")
+    elif send_email(full_msg):
+        logger.info("Digest sent via email")
+    else:
+        logger.error("Failed to send digest")
     
-    # Fallback: Print to console
+    # Also print to console for debugging
     print(full_msg)
 
 if __name__ == "__main__":
