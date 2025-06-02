@@ -29,18 +29,62 @@ def reddit_story():
             headline = textwrap.shorten(p["data"]["title"], 100)
             return f"*Learner Story*\n• **{headline}**\n• [Reddit link]({url})"
     return None
+def catalog_pulse():
+    """Return a markdown bullet list of new + top-enrolled courses."""
+    base = "https://www.coursera.org/api/onDemandCourses.v1"
+    # ---- 1. newest titles --------------------------------------------------
+    new_url = f"{base}?q=search&query=&sortField=recentlyLaunched&limit=3"
+    new_titles = [c["name"] for c in requests.get(new_url).json()["elements"]]
+    # ---- 2. top enrolled last 30 days --------------------------------------
+    pop_url = f"{base}?q=search&query=&sortField=popular&limit=3"
+    pop_titles = [c["name"] for c in requests.get(pop_url).json()["elements"]]
+    # Build markdown
+    bullets  = "📊 *Catalog Pulse*\n"
+    bullets += "• **New this week:** " + ", ".join(new_titles) + "\n"
+    bullets += "• **Top-enrolled 30 d:** " + ", ".join(pop_titles)
+    return bullets
 
 def fresh_spin():
-    feed = "https://blog.coursera.org/feed/"
-    xml = requests.get(feed).text.split("<item>")
-    latest = xml[1] if len(xml)>1 else ""
-    title = latest.split("<title>")[1].split("</title>")[0]
-    link  = latest.split("<link>")[1].split("</link>")[0]
-    pub   = latest.split("<pubDate>")[1].split("</pubDate>")[0]
-    return f"*Fresh Spin*\n• **{title}**\n• Published {pub}\n• [Read more]({link})"
+    """Pick one catalog event worth talking about: newest launch
+       OR a program hitting a milestone anniversary."""
+    import datetime, requests, random
+    base = "https://www.coursera.org/api/onDemandCourses.v1"
+
+    # 1. Newest launch in the last 14 days
+    new_url = f"{base}?q=search&sortField=recentlyLaunched&limit=10"
+    newest = requests.get(new_url).json()["elements"]
+
+    # filter to last 14 days
+    two_weeks = datetime.datetime.utcnow() - datetime.timedelta(days=14)
+    fresh = [
+        c for c in newest
+        if datetime.datetime.fromtimestamp(c["createdAt"]/1000) > two_weeks
+    ]
+
+    if fresh:                                 # prefer true “brand new”
+        pick = random.choice(fresh)
+        return (f"✨ *Fresh Spin*\n"
+                f"• **New course:** {pick['name']}\n"
+                f"• Why care: launched {pick['partners'][0]['name']} just this month\n"
+                f"• URL: https://www.coursera.org/learn/{pick['slug']}")
+    # 2. Otherwise--pick a course celebrating a round-number anniversary (1 yr, 2 yr…)
+    pop_url = f"{base}?q=search&sortField=popular&limit=50"
+    popular = requests.get(pop_url).json()["elements"]
+    today   = datetime.datetime.utcnow().date()
+
+    for c in popular:
+        launch = datetime.datetime.fromtimestamp(c["createdAt"]/1000).date()
+        age = (today - launch).days // 365
+        if age in {1,2,3,5}:                  # milestone birthdays you care about
+            return (f"✨ *Fresh Spin*\n"
+                    f"• **{c['name']}** turns {age} years old this week!\n"
+                    f"• {c['enrollments']} learners so far.\n"
+                    f"• URL: https://www.coursera.org/learn/{c['slug']}")
+
+    return None      # if neither condition hits, nothing gets added
 
 # ---------- assemble & post ----------
-blocks = [meta_ad(), reddit_story(), fresh_spin()]
+blocks = [meta_ad(), reddit_story(), fresh_spin(), catalog_pulse()]
 digest  = "\n\n".join([b for b in blocks if b])
 
 if digest:
