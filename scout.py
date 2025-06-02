@@ -375,8 +375,7 @@ def reddit_insight():
                             "score": score,
                             "confidence": confidence
                         }
-
-        # Format the best result
+# Format the best result
         if best_candidate:
             data = best_candidate["data"]
             title = data.get("title", "")
