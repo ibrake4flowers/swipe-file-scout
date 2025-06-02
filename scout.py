@@ -36,76 +36,67 @@ def safe_api_call(func_name, api_call):
         return None
 
 def classify_reddit_content(title, selftext=""):
-    """Enhanced classification that actually reads the content"""
+    """FIXED classification that actually reads the content properly"""
     combined = (title + " " + selftext).lower()
+    title_lower = title.lower()
     
-    # EXPLICIT success indicators - must mention coursera AND success
+    # PRIORITY 1: Clear pain points - check FIRST
+    pain_indicators = [
+        "why is it so hard", "why is it hard", "struggling to find", "can't find a job",
+        "difficulty finding", "impossible to get", "no luck finding", "rejected from",
+        "unemployment", "job search struggles", "been applying for months", 
+        "getting discouraged", "feeling stuck", "hard to find entry level",
+        "entry level so hard", "no entry level jobs"
+    ]
+    
+    for indicator in pain_indicators:
+        if indicator in title_lower:  # Check title specifically
+            return ("pain_point", 0.95)  # Very high confidence
+    
+    # PRIORITY 2: Questions/advice seeking - also check early
+    question_indicators = [
+        "can i get", "should i", "is it worth", "how do i", "what do you think",
+        "advice needed", "help me", "recommendations", "which course",
+        "best way to", "how to start", "career switch at", "will this help"
+    ]
+    
+    for indicator in question_indicators:
+        if indicator in title_lower:
+            return ("motivation", 0.9)
+    
+    # Questions end with ?
+    if title.strip().endswith("?"):
+        return ("motivation", 0.85)
+    
+    # PRIORITY 3: Explicit Coursera success stories
     coursera_success_keywords = [
-        "coursera got a job", "coursera landed job", "coursera helped me get",
-        "google certificate got hired", "google it support hired", 
-        "coursera career change success", "coursera promotion"
+        "coursera got me a job", "coursera helped me get hired", "coursera landed me",
+        "google certificate got me hired", "google it support got me job",
+        "coursera career change success", "got promoted after coursera"
     ]
     
-    # General success but check if coursera-related
-    general_success_keywords = [
-        "got a job", "landed a job", "hired", "job offer", "promotion"
-    ]
-    
-    # Clear pain points
-    pain_keywords = [
-        "why is it so hard", "struggling to", "can't find", "difficulty finding",
-        "impossible to", "no luck", "rejected", "unemployment", "job search struggles",
-        "been applying for months", "getting discouraged", "feeling stuck"
-    ]
-    
-    # Questions/advice seeking (high confidence)
-    question_keywords = [
-        "can i get", "should i", "is it worth", "how do i", "what do you think", 
-        "advice needed", "help me", "recommendations", "which course", 
-        "best way to", "how to start", "career switch at", "entry-level job by learning"
-    ]
-    
-    # ACTUAL course completions (not questions about them)
-    completion_keywords = [
-        "just completed coursera", "finished coursera course", "earned my certificate",
-        "graduated from coursera", "coursera specialization complete", 
-        "completed andrew ng", "finished my coursera"
-    ]
-    
-    # Check for explicit Coursera success stories first
     for keyword in coursera_success_keywords:
         if keyword in combined:
             return ("testimonial", 0.95)
     
-    # Check for general success but only if coursera mentioned
-    if "coursera" in combined or "google certificate" in combined:
-        for keyword in general_success_keywords:
-            if keyword in combined:
+    # PRIORITY 4: General success but ONLY if coursera mentioned
+    if any(term in combined for term in ["coursera", "google certificate", "google it support"]):
+        success_terms = ["got a job", "landed a job", "got hired", "job offer", "promotion"]
+        for term in success_terms:
+            if term in combined:
                 return ("testimonial", 0.8)
     
-    # Check for clear pain points
-    for keyword in pain_keywords:
-        if keyword in combined:
-            return ("pain_point", 0.9)
+    # PRIORITY 5: Course completions
+    completion_keywords = [
+        "just completed coursera", "finished coursera course", "earned coursera certificate",
+        "graduated from coursera", "completed andrew ng", "finished my coursera"
+    ]
     
-    # Check for questions/advice seeking (these are NOT success stories)
-    for keyword in question_keywords:
-        if keyword in combined:
-            return ("motivation", 0.9)  # High confidence this is a question
-    
-    # Check for actual completions
     for keyword in completion_keywords:
         if keyword in combined:
             return ("course_rec", 0.8)
     
-    # Fallback: Questions end with ?
-    if title.strip().endswith("?"):
-        return ("motivation", 0.8)  # Questions are NOT completion stories
-    
-    # If contains coursera + completed/finished but wasn't caught above
-    if "coursera" in combined and any(word in combined for word in ["completed", "finished", "done with"]):
-        return ("course_rec", 0.6)
-    
+    # Default fallback
     return ("motivation", 0.3)
 
 @rate_limit(delay=2)
@@ -116,10 +107,10 @@ def meta_ad():
         if not token:
             logger.error("FB_TOKEN not found in environment variables")
             return (
-                "❌ META AD LIBRARY ACCESS PENDING\n"
-                "   → FB_TOKEN found but requires approval\n"
-                "   → Status: developers.facebook.com/tools/explorer\n"
-                "   → Typical approval: 1-3 business days\n"
+                "❌ META AD LIBRARY ACCESS PENDING\n\n"
+                "   FB_TOKEN found but requires approval\n"
+                "   Status: developers.facebook.com/tools/explorer\n"
+                "   Typical approval: 1-3 business days"
             )
 
         # Test the token first
@@ -227,10 +218,10 @@ def meta_ad():
         logger.info(f"Selected ad from {brand} with {impressions} impressions")
 
         return (
-            f"🎯 PREMIUM BRAND INSPIRATION ({brand.upper()})\n"
-            f"   → Impressions: {impressions:,} (lower bound)\n"
-            f"   → Hook: \"{creative_body}\"\n"
-            f"   → Preview: {snapshot}\n"
+            f"**🎯 META AD INSPIRATION** — {brand.upper()}\n\n"
+            f"   Impressions: {impressions:,} (lower bound)\n"
+            f"   Hook: \"{creative_body}\"\n"
+            f"   Preview: {snapshot}"
         )
 
     return safe_api_call("meta_ad", _fetch_meta_ads)
@@ -468,10 +459,10 @@ def reddit_story():
             headline = textwrap.shorten(title, 85)
             
             return (
-                f"📈 COURSE COMPLETION STORY\n"
-                f"   → {headline}\n"
-                f"   → {ups} upvotes | Quality Score: {best_score:.0f}\n"
-                f"   → Link: https://reddit.com{permalink}\n"
+                f"**📈 COURSE COMPLETION** — r/{best_post.get('subreddit', 'coursera')}\n\n"
+                f"   {headline}\n"
+                f"   {ups} upvotes | Quality Score: {best_score:.0f}\n"
+                f"   Link: https://reddit.com{permalink}"
             )
 
         return None
@@ -479,17 +470,19 @@ def reddit_story():
     return safe_api_call("reddit_story", _fetch_reddit_story)
 
 def format_digest(blocks):
-    """Format digest to look professional in both email and Slack"""
+    """Clean formatting with bold separators instead of symbols"""
     valid_blocks = [section for section in blocks if section]
     
     if not valid_blocks:
         return None
     
-    # Clean, professional formatting
+    # Simple, clean formatting with bold dividers
     formatted_blocks = []
     for i, block in enumerate(valid_blocks):
         if i > 0:
-            formatted_blocks.append("\n" + "="*60 + "\n")  # Clean separator
+            formatted_blocks.append("")  # Empty line
+            formatted_blocks.append("**" + "—"*20 + "**")  # Bold separator
+            formatted_blocks.append("")  # Empty line
         formatted_blocks.append(block)
     
     return "\n".join(formatted_blocks)
@@ -558,11 +551,11 @@ def main():
         )
 
     if digest:
-        # Professional header
-        header = f"COURSERA AD INSPIRATION DIGEST | {datetime.date.today().strftime('%B %d, %Y')}"
-        separator = "="*len(header)
+        # Clean header with bold formatting
+        date_str = datetime.date.today().strftime('%B %d, %Y')
+        header = f"**COURSERA AD INSPIRATION DIGEST | {date_str}**"
         
-        full_msg = f"{separator}\n{header}\n{separator}\n\n{digest}\n\n{separator}\nGenerated by Swipe-File Scout"
+        full_msg = f"{header}\n\n{digest}\n\n**Generated by Swipe-File Scout**"
 
         if send_slack(full_msg):
             logger.info("Digest sent via Slack")
