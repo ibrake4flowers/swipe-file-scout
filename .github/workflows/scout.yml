@@ -1,0 +1,25 @@
+name: Swipe-File-Scout
+on:
+  schedule:
+    - cron: '30 15 * * 1'   # 08:30 PT every Monday
+  workflow_dispatch:        # lets you test on demand
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip odd weeks (run bi-weekly)
+        run: |
+          if [ $(( $(date +%U) % 2 )) -eq 1 ]; then
+            echo "Odd week — skipping"; exit 0; fi
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: pip install requests vaderSentiment python-dotenv
+
+      - name: Run scout
+        env:
+          FB_TOKEN: ${{ secrets.FB_TOKEN }}
+          REDDIT_ID: ${{ secrets.REDDIT_ID }}
+          REDDIT_SECRET: ${{ secrets.REDDIT_SECRET }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: python scout.py
