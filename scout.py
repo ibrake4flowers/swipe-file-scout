@@ -1,116 +1,158 @@
-import os, json, textwrap, requests, datetime, html
+import os
+import json
+import textwrap
+import requests
+import datetime
+import html
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
 analyser = SentimentIntensityAnalyzer()
 
 # ---------- helpers ----------
 def meta_ad():
-    url = ("https://graph.facebook.com/v18.0/ads_archive?"
-           "search_terms=off%20save%20ends&ad_reached_countries=US"
-           "&fields=ad_creative_body,ad_creative_link_caption,ad_snapshot_url,"
-           "impressions_lower_bound,ad_creation_time&access_token="+os.environ["FB_TOKEN"])
-    res = requests.get(url).json().get("data", [])
-    top = max(res, key=lambda r: int(r["impressions_lower_bound"])) if res else None
-    if not top: return None
-    return f"*Promo Play*\n• **Hook:** {html.unescape(top['ad_creative_body'][:80])}…\n• [View Ad]({top['ad_snapshot_url']})"
+    """
+    Fetch the top ad from the Meta Ad Library using ads_read permissions.
+    Returns a string like:
+    "*Promo Play*
+     • **Hook:** ... … 
+     • [View Ad](ad_snapshot_url)"
+    Or returns None if no ads are found.
+    """
+    url = (
+        "https://graph.facebook.com/v18.0/ads_archive?"
+        "search_terms=off%20save%20ends&ad_reached_countries=US"
+        "&fields=ad_creative_body,ad_creative_link_caption,ad_snapshot_url,"
+        "impressions_lower_bound,ad_creation_time"
+        "&access_token=" + os.environ.get("FB_TOKEN", "")
+    )
+    response = requests.get(url).json()
+    ad_list = response.get("data", [])
+    if not ad_list:
+        return None
+
+    try:
+        top_ad = max(ad_list, key=lambda r: int(r.get("impressions_lower_bound", 0)))
+    except (ValueError, TypeError):
+        return None
+
+    body = html.unescape(top_ad.get("ad_creative_body", "")[:80])
+    snapshot_url = top_ad.get("ad_snapshot_url", "")
+    return f"*Promo Play*\n• **Hook:** {body}…\n• [View Ad]({snapshot_url})"
+
 
 def reddit_story():
-    auth = requests.auth.HTTPBasicAuth(os.environ["REDDIT_ID"], os.environ["REDDIT_SECRET"])
-    data = {"grant_type":"client_credentials"}
-    token = requests.post("https://www.reddit.com/api/v1/access_token", auth=auth,
-                          data=data, headers={"User-Agent":"swipebot"}).json()["access_token"]
-    hdrs = {"Authorization": f"bearer {token}", "User-Agent":"swipebot"}
-    q = ("https://oauth.reddit.com/r/coursera+learnprogramming/search"
-         "?q=coursera%20completed%20OR%20finished&sort=new&restrict_sr=on&limit=50")
-    posts = requests.get(q, headers=hdrs).json()["data"]["children"]
-    for p in posts:
-        t = p["data"]["title"]+" "+p["data"].get("selftext","")
-        if p["data"]["ups"]>=10 and analyser.polarity_scores(t)["compound"]>0.4:
-            url = "https://reddit.com"+p["data"]["permalink"]
-            headline = textwrap.shorten(p["data"]["title"], 100)
-            return f"*Learner Story*\n• **{headline}**\n• [Reddit link]({url})"
+    """
+    Fetch a highly upvoted, positive Coursera 'completed' post from Reddit.
+    Returns a string like:
+    "*Learner Story*
+     • **Post Title**
+     • [Reddit link](permalink)"
+    Or returns None if no suitable post is found.
+    """
+    client_id = os.environ.get("REDDIT_ID", "")
+    client_secret = os.environ.get("REDDIT_SECRET", "")
+    if not client_id or not client_secret:
+        return None
+
+    auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
+    data = {"grant_type": "client_credentials"}
+    token_response = requests.post(
+        "https://www.reddit.com/api/v1/access_token",
+        auth=auth,
+        data=data,
+        headers={"User-Agent": "swipebot"},
+        timeout=10
+    ).json()
+
+    token = token_response.get("access_token")
+    if not token:
+        return None
+
+    headers = {"Authorization": f"bearer {token}", "User-Agent": "swipebot"}
+    query_url = (
+        "https://oauth.reddit.com/r/coursera+learnprogramming/search"
+        "?q=coursera%20completed%20OR%20finished&sort=new&restrict_sr=on&limit=50"
+    )
+    posts_response = requests.get(query_url, headers=headers, timeout=10).json()
+    children = posts_response.get("data", {}).get("children", [])
+
+    for post in children:
+        data = post.get("data", {})
+        title = data.get("title", "")
+        selftext = data.get("selftext", "")
+        ups = data.get("ups", 0)
+
+        combined_text = title + " " + selftext
+        sentiment = analyser.polarity_scores(combined_text).get("compound", 0)
+
+        if ups >= 10 and sentiment > 0.4:
+            permalink = data.get("permalink", "")
+            headline = textwrap.shorten(title, 100)
+            return f"*Learner Story*\n• **{headline}**\n• [Reddit link](https://reddit.com{permalink})"
+
     return None
-def catalog_pulse():
-    """Return a markdown bullet list of new + top-enrolled courses."""
-    base = "https://www.coursera.org/api/onDemandCourses.v1"
-    # ---- 1. newest titles --------------------------------------------------
-    new_url = f"{base}?q=search&query=&sortField=recentlyLaunched&limit=3"
-    new_titles = [c["name"] for c in requests.get(new_url).json()["elements"]]
-    # ---- 2. top enrolled last 30 days --------------------------------------
-    pop_url = f"{base}?q=search&query=&sortField=popular&limit=3"
-    pop_titles = [c["name"] for c in requests.get(pop_url).json()["elements"]]
-    # Build markdown
-    bullets  = "📊 *Catalog Pulse*\n"
-    bullets += "• **New this week:** " + ", ".join(new_titles) + "\n"
-    bullets += "• **Top-enrolled 30 d:** " + ", ".join(pop_titles)
-    return bullets
 
-def fetch_json(url):
-    # Coursera blocks some non-browser user-agents; spoof one & handle errors
-    hdrs = {"User-Agent": "Mozilla/5.0"}
-    r = requests.get(url, headers=hdrs, timeout=10)
-    if r.status_code != 200:
-        return {}
-    return r.json()
-
-def fresh_spin():
-    """Return a launch or milestone pulled from the catalog; skip gracefully if none."""
-    base = "https://www.coursera.org/api/onDemandCourses.v1"
-    new_url = f"{base}?q=search&sortField=recentlyLaunched&limit=10"
-    newest = fetch_json(new_url).get("elements", [])
-
-    # 1. Newest launch in the last 14 days
-    new_url = f"{base}?q=search&sortField=recentlyLaunched&limit=10"
-    newest = requests.get(new_url).json()["elements"]
-
-    # filter to last 14 days
-    two_weeks = datetime.datetime.utcnow() - datetime.timedelta(days=14)
-    fresh = [
-        c for c in newest
-        if datetime.datetime.fromtimestamp(c["createdAt"]/1000) > two_weeks
-    ]
-
-    if fresh:                                 # prefer true “brand new”
-        pick = random.choice(fresh)
-        return (f"✨ *Fresh Spin*\n"
-                f"• **New course:** {pick['name']}\n"
-                f"• Why care: launched {pick['partners'][0]['name']} just this month\n"
-                f"• URL: https://www.coursera.org/learn/{pick['slug']}")
-    # 2. Otherwise--pick a course celebrating a round-number anniversary (1 yr, 2 yr…)
-    pop_url = f"{base}?q=search&sortField=popular&limit=50"
-    popular = requests.get(pop_url).json()["elements"]
-    today   = datetime.datetime.utcnow().date()
-
-    for c in popular:
-        launch = datetime.datetime.fromtimestamp(c["createdAt"]/1000).date()
-        age = (today - launch).days // 365
-        if age in {1,2,3,5}:                  # milestone birthdays you care about
-            return (f"✨ *Fresh Spin*\n"
-                    f"• **{c['name']}** turns {age} years old this week!\n"
-                    f"• {c['enrollments']} learners so far.\n"
-                    f"• URL: https://www.coursera.org/learn/{c['slug']}")
-
-    return None      # if neither condition hits, nothing gets added
 
 # ---------- assemble & post ----------
-blocks = [meta_ad(), reddit_story()]
-digest  = "\n\n".join([b for b in blocks if b])
+blocks = [
+    meta_ad(),
+    reddit_story()
+]
+
+# Create 'digest' by joining only non-None blocks with two newlines
+digest = "\n\n".join([section for section in blocks if section])
+
 
 # ---------- helpers to send ----------
 def send_slack(msg: str) -> bool:
-    hook = os.getenv("SLACK_WEBHOOK")
+    """
+    Attempt to send the message to Slack via the SLACK_WEBHOOK URL.
+    Returns True if SLACK_WEBHOOK is set and the POST is attempted.
+    """
+    hook = os.getenv("SLACK_WEBHOOK", "").strip()
     if hook:
-        requests.post(hook, data=json.dumps({"text": msg}))
-        return True
+        try:
+            requests.post(hook, data=json.dumps({"text": msg}), timeout=10)
+            return True
+        except Exception:
+            return False
     return False
 
+
 def send_email(msg: str) -> bool:
-    user = os.getenv("EMAIL_FROM")
-    pwd  = os.getenv("EMAIL_PW")
-    to   = os.getenv("EMAIL_TO")
+    """
+    Send the message via Gmail SMTP using EMAIL_FROM, EMAIL_PW, EMAIL_TO.
+    Returns True if all three environment variables are set and send succeeds.
+    """
+    user = os.getenv("EMAIL_FROM", "").strip()
+    pwd = os.getenv("EMAIL_PW", "").strip()
+    to = os.getenv("EMAIL_TO", "").strip()
+
     if not (user and pwd and to):
         return False
-    import email.message, smtplib
-    m = email.message.EmailMessage()
-    m["Subject"] = "Swipe-File Digest"
-    m["From"], m["To"] = user, to
-    m.set_content_
+
+    try:
+        import email.message
+        import smtplib
+
+        email_msg = email.message.EmailMessage()
+        email_msg["Subject"] = "Swipe-File Digest"
+        email_msg["From"] = user
+        email_msg["To"] = to
+        email_msg.set_content(msg)
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(user, pwd)
+            smtp.send_message(email_msg)
+        return True
+    except Exception:
+        return False
+
+
+# ---------- send the digest ----------
+if digest:
+    full_msg = f"▶️ Swipe-file digest ({datetime.date.today()})\n\n" + digest
+
+    # Try Slack first; if that fails or SLACK_WEBHOOK is not set, fall back to email
+    if not send_slack(full_msg):
+        send_email(full_msg)
