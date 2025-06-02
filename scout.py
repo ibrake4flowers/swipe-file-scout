@@ -44,11 +44,19 @@ def catalog_pulse():
     bullets += "• **Top-enrolled 30 d:** " + ", ".join(pop_titles)
     return bullets
 
+def fetch_json(url):
+    # Coursera blocks some non-browser user-agents; spoof one & handle errors
+    hdrs = {"User-Agent": "Mozilla/5.0"}
+    r = requests.get(url, headers=hdrs, timeout=10)
+    if r.status_code != 200:
+        return {}
+    return r.json()
+
 def fresh_spin():
-    """Pick one catalog event worth talking about: newest launch
-       OR a program hitting a milestone anniversary."""
-    import datetime, requests, random
+    """Return a launch or milestone pulled from the catalog; skip gracefully if none."""
     base = "https://www.coursera.org/api/onDemandCourses.v1"
+    new_url = f"{base}?q=search&sortField=recentlyLaunched&limit=10"
+    newest = fetch_json(new_url).get("elements", [])
 
     # 1. Newest launch in the last 14 days
     new_url = f"{base}?q=search&sortField=recentlyLaunched&limit=10"
@@ -87,6 +95,22 @@ def fresh_spin():
 blocks = [meta_ad(), reddit_story(), fresh_spin(), catalog_pulse()]
 digest  = "\n\n".join([b for b in blocks if b])
 
-if digest:
-    payload = {"text": f"▶️ Swipe-file digest ({datetime.date.today()})\n\n"+digest}
-    requests.post(os.environ["SLACK_WEBHOOK"], data=json.dumps(payload))
+# ---------- helpers to send ----------
+def send_slack(msg: str) -> bool:
+    hook = os.getenv("SLACK_WEBHOOK")
+    if hook:
+        requests.post(hook, data=json.dumps({"text": msg}))
+        return True
+    return False
+
+def send_email(msg: str) -> bool:
+    user = os.getenv("EMAIL_FROM")
+    pwd  = os.getenv("EMAIL_PW")
+    to   = os.getenv("EMAIL_TO")
+    if not (user and pwd and to):
+        return False
+    import email.message, smtplib
+    m = email.message.EmailMessage()
+    m["Subject"] = "Swipe-File Digest"
+    m["From"], m["To"] = user, to
+    m.set_content_
