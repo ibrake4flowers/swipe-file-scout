@@ -1,19 +1,27 @@
 name: Swipe-File-Scout
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # Prevent hanging workflows
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install deps
-        run: pip install requests vaderSentiment python-dotenv
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-      - name: Run scout
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests vaderSentiment python-dotenv
+
+      - name: Run swipe-file scout
         env:
           FB_TOKEN:      ${{ secrets.FB_TOKEN }}
           REDDIT_ID:     ${{ secrets.REDDIT_ID }}
@@ -23,3 +31,7 @@ jobs:
           EMAIL_PW:      ${{ secrets.EMAIL_PW }}
           EMAIL_TO:      ${{ secrets.EMAIL_TO }}
         run: python scout.py
+
+      - name: Log completion
+        if: always()
+        run: echo "Swipe-file scout completed at $(date)"
