@@ -86,8 +86,8 @@ def meta_ad():
     return safe_api_call("meta_ad", _fetch_meta_ads)
 
 @rate_limit(delay=1.5)
-def reddit_audience_insights():
-    """Find audience pain points, motivations, and language for ad empathy"""
+def reddit_coursera_insights():
+    """Find Coursera-specific audience insights: pain points, successes, and motivations"""
     def _fetch_reddit():
         client_id = os.environ.get("REDDIT_ID", "").strip()
         client_secret = os.environ.get("REDDIT_SECRET", "").strip()
@@ -114,155 +114,175 @@ def reddit_audience_insights():
 
         headers = {"Authorization": f"bearer {token}", "User-Agent": "swipebot"}
 
-        # AUDIENCE EMPATHY SUBREDDITS - where people share real struggles and wins
+        # COURSERA-FOCUSED SUBREDDITS where people discuss online learning
         target_subreddits = [
-            "careerchange", "careeradvice", "ITCareerQuestions", "cscareerquestions",
-            "getStudying", "selfimprovement", "digitalnomad", "marketing",
-            "DataScience", "learnprogramming", "AskCareerAdvice"
+            "Coursera", "ITCareerQuestions", "cscareerquestions", "learnprogramming",
+            "careerchange", "getStudying", "DataScience", "MachineLearning",
+            "careeradvice", "AskCareerAdvice", "digitalnomad"
         ]
 
-        # AUDIENCE INSIGHT PATTERNS - what we want to understand about our audience
+        # COURSERA-SPECIFIC INSIGHT PATTERNS
         insight_patterns = {
-            "PAIN_POINTS": {
-                "triggers": ["feeling stuck", "dead end", "hate my job", "burned out", "unfulfilled", 
-                           "career change", "switch careers", "need advice", "lost motivation"],
-                "emoji": "😤",
-                "min_ups": 15
-            },
-            "SUCCESS_STORIES": {
-                "triggers": ["landed", "got hired", "career change success", "finally did it", 
-                           "best decision", "changed my life", "so grateful", "dream job"],
+            "SUCCESS_WITH_COURSERA": {
+                "coursera_terms": ["coursera", "google certificate", "google it support", "ibm certificate", "andrew ng"],
+                "success_terms": ["got job", "hired", "landed", "career change", "promotion", "breakthrough"],
                 "emoji": "🎉",
-                "min_ups": 10
+                "min_ups": 5
             },
-            "LEARNING_MOTIVATION": {
-                "triggers": ["want to learn", "should i study", "worth learning", "how to start",
-                           "beginner advice", "roadmap", "skill development", "upskilling"],
-                "emoji": "🧠",
+            "COURSERA_DOUBTS": {
+                "coursera_terms": ["coursera", "online course", "certificate", "mooc"],
+                "doubt_terms": ["worth it", "waste of time", "legitimate", "employers recognize", "actually help"],
+                "emoji": "🤔",
                 "min_ups": 8
+            },
+            "COURSERA_STRUGGLES": {
+                "coursera_terms": ["coursera", "online learning", "certificate program"],
+                "struggle_terms": ["struggling with", "hard to", "difficult", "overwhelmed", "stuck", "motivation"],
+                "emoji": "😰",
+                "min_ups": 5
+            },
+            "COURSERA_RECOMMENDATIONS": {
+                "coursera_terms": ["coursera", "course recommendation", "which course", "best course"],
+                "rec_terms": ["recommend", "suggest", "best for", "should i take", "worth taking"],
+                "emoji": "💡",
+                "min_ups": 10
             }
         }
 
         found_insights = []
 
-        # Search each subreddit for general career/learning discussions (not just Coursera)
+        # Search each subreddit specifically for Coursera discussions
         for subreddit in target_subreddits:
-            logger.info(f"Searching r/{subreddit} for audience insights...")
+            logger.info(f"Searching r/{subreddit} for Coursera insights...")
             
-            # Broader search for career/learning discussions
-            search_queries = [
-                "career%20change%20OR%20switch%20careers%20OR%20new%20career",
-                "feeling%20stuck%20OR%20dead%20end%20OR%20unfulfilled",
-                "learn%20new%20skills%20OR%20upskilling%20OR%20reskilling"
-            ]
+            # Search for Coursera mentions in the last 2 weeks (broader timeframe)
+            search_url = (
+                f"https://oauth.reddit.com/r/{subreddit}/search?"
+                "q=coursera%20OR%20%22google%20certificate%22%20OR%20%22online%20course%22&"
+                "sort=hot&restrict_sr=on&t=month&limit=30"  # Last month, hot posts
+            )
             
-            for query in search_queries:
-                search_url = (
-                    f"https://oauth.reddit.com/r/{subreddit}/search?"
-                    f"q={query}&sort=hot&restrict_sr=on&t=week&limit=15"
-                )
+            try:
+                resp = requests.get(search_url, headers=headers, timeout=10).json()
+                posts = resp.get("data", {}).get("children", [])
                 
-                try:
-                    resp = requests.get(search_url, headers=headers, timeout=10).json()
-                    posts = resp.get("data", {}).get("children", [])
+                logger.info(f"  Found {len(posts)} Coursera-related posts")
+                
+                for post in posts:
+                    data = post.get("data", {})
+                    title = data.get("title", "")
+                    selftext = data.get("selftext", "")
+                    ups = data.get("ups", 0)
+                    created = data.get("created_utc", 0)
                     
-                    for post in posts:
-                        data = post.get("data", {})
-                        title = data.get("title", "")
-                        selftext = data.get("selftext", "")
-                        ups = data.get("ups", 0)
-                        created = data.get("created_utc", 0)
+                    # Combine title and text for analysis
+                    full_text = (title + " " + selftext).lower()
+                    
+                    # Must mention Coursera or related terms
+                    mentions_coursera = any(term in full_text for term in [
+                        "coursera", "google certificate", "google it support", "ibm certificate", 
+                        "andrew ng", "online course", "mooc", "certificate program"
+                    ])
+                    
+                    if not mentions_coursera:
+                        continue
+                    
+                    # Check against each insight pattern
+                    for insight_type, pattern in insight_patterns.items():
+                        if ups < pattern["min_ups"]:
+                            continue
                         
-                        # Combine title and text for analysis
-                        full_text = (title + " " + selftext).lower()
+                        # Must mention both Coursera terms AND the specific pattern terms
+                        has_coursera_term = any(term in full_text for term in pattern["coursera_terms"])
+                        has_pattern_term = any(term in full_text for term in pattern.get("success_terms", []) + 
+                                                                                pattern.get("doubt_terms", []) + 
+                                                                                pattern.get("struggle_terms", []) + 
+                                                                                pattern.get("rec_terms", []))
                         
-                        # Check against each insight pattern
-                        for insight_type, pattern in insight_patterns.items():
-                            if ups < pattern["min_ups"]:
-                                continue
+                        if has_coursera_term and has_pattern_term:
+                            # Extract meaningful quote
+                            quote = ""
+                            if selftext and len(selftext) > 100:
+                                # Find sentences that mention coursera or courses
+                                sentences = selftext.split('.')
+                                for sentence in sentences:
+                                    if any(term in sentence.lower() for term in ["coursera", "course", "certificate"]) and len(sentence.strip()) > 50:
+                                        quote = sentence.strip()[:300]
+                                        break
                                 
-                            # Check if any triggers match
-                            trigger_match = any(trigger in full_text for trigger in pattern["triggers"])
-                            
-                            if trigger_match:
-                                # Extract meaningful quote from the post
-                                quote = ""
-                                if selftext and len(selftext) > 50:
-                                    # Get first meaningful sentence
-                                    sentences = selftext.split('.')
-                                    for sentence in sentences[:3]:
-                                        if len(sentence.strip()) > 30:
-                                            quote = sentence.strip()[:200] + "..."
+                                # If no coursera-specific quote, get first meaningful sentence
+                                if not quote:
+                                    for sentence in sentences[:2]:
+                                        if len(sentence.strip()) > 50:
+                                            quote = sentence.strip()[:300]
                                             break
-                                
-                                # Classify based on content analysis
-                                actual_type = "LEARNING_MOTIVATION"  # Default
-                                
-                                # Pain point detection
-                                pain_words = ["stuck", "hate", "unfulfilled", "burned out", "dead end", "miserable"]
-                                if any(word in full_text for word in pain_words):
-                                    actual_type = "PAIN_POINTS"
-                                
-                                # Success story detection  
-                                success_words = ["landed", "hired", "got the job", "success", "finally", "dream job", "best decision"]
-                                if any(word in full_text for word in success_words):
-                                    actual_type = "SUCCESS_STORIES"
-                                
-                                found_insights.append({
-                                    "type": actual_type,
-                                    "emoji": insight_patterns[actual_type]["emoji"],
-                                    "title": title,
-                                    "quote": quote if quote else title,
-                                    "url": "https://reddit.com" + data.get("permalink", ""),
-                                    "upvotes": ups,
-                                    "subreddit": subreddit,
-                                    "score": ups * (3 if actual_type == "PAIN_POINTS" else 2 if actual_type == "SUCCESS_STORIES" else 1),
-                                    "age_hours": (time.time() - created) / 3600
-                                })
-                                break  # Found a match for this post
-                                
-                except Exception as e:
-                    logger.warning(f"Error searching r/{subreddit}: {e}")
-                    continue
+                            
+                            # Use title if no good quote found
+                            if not quote:
+                                quote = title[:200]
+                            
+                            found_insights.append({
+                                "type": insight_type,
+                                "emoji": pattern["emoji"],
+                                "title": title,
+                                "quote": quote,
+                                "url": "https://reddit.com" + data.get("permalink", ""),
+                                "upvotes": ups,
+                                "subreddit": subreddit,
+                                "score": ups * (3 if "SUCCESS" in insight_type else 2 if "DOUBTS" in insight_type else 1),
+                                "age_days": (time.time() - created) / 86400
+                            })
+                            break  # Found a match for this post
+                            
+            except Exception as e:
+                logger.warning(f"Error searching r/{subreddit}: {e}")
+                continue
 
-        # Sort by relevance and recency
-        found_insights.sort(key=lambda x: x["score"] - (x["age_hours"] / 48), reverse=True)
+        # Sort by relevance (score) and recency
+        found_insights.sort(key=lambda x: x["score"] - (x["age_days"] / 7), reverse=True)
         
-        # Get diverse insights - one of each type
+        # Get diverse insights - prioritize different types
         final_insights = []
         used_types = set()
         
+        # First pass: get one of each type
         for insight in found_insights:
-            if insight["type"] not in used_types and len(final_insights) < 3:
+            if insight["type"] not in used_types and len(final_insights) < 4:
                 final_insights.append(insight)
                 used_types.add(insight["type"])
         
-        # Format results with quotes for ad inspiration
+        # Second pass: fill remaining slots with best remaining
+        for insight in found_insights:
+            if len(final_insights) < 3 and insight not in final_insights:
+                final_insights.append(insight)
+        
+        # Format results with Coursera context
         if final_insights:
             formatted = []
             for insight in final_insights:
-                age_str = f"{insight['age_hours']:.0f}h ago" if insight['age_hours'] < 48 else f"{insight['age_hours']/24:.0f}d ago"
+                age_str = f"{insight['age_days']:.0f}d ago" if insight['age_days'] >= 1 else "today"
                 
                 type_labels = {
-                    "PAIN_POINTS": "AUDIENCE PAIN POINT",
-                    "SUCCESS_STORIES": "SUCCESS STORY", 
-                    "LEARNING_MOTIVATION": "LEARNING MOTIVATION"
+                    "SUCCESS_WITH_COURSERA": "COURSERA SUCCESS",
+                    "COURSERA_DOUBTS": "COURSERA SKEPTICISM", 
+                    "COURSERA_STRUGGLES": "LEARNING CHALLENGES",
+                    "COURSERA_RECOMMENDATIONS": "COURSE SEEKING"
                 }
                 
                 formatted.append(
                     f"{insight['emoji']} {type_labels[insight['type']]} - r/{insight['subreddit']}\n"
                     f"   Title: {insight['title'][:70]}{'...' if len(insight['title']) > 70 else ''}\n"
-                    f"   Quote: \"{insight['quote'][:150]}{'...' if len(insight['quote']) > 150 else ''}\"\n"
+                    f"   Quote: \"{insight['quote'][:200]}{'...' if len(insight['quote']) > 200 else ''}\"\n"
                     f"   {insight['upvotes']} upvotes | Posted {age_str}\n"
                     f"   {insight['url']}"
                 )
             
             return "\n\n".join(formatted)
         
-        logger.info(f"Searched {len(target_subreddits)} subreddits for audience insights")
-        return "🔴 REDDIT: No audience insights found in target subreddits this week"
+        logger.info(f"Searched {len(target_subreddits)} subreddits for Coursera insights")
+        return "🔴 REDDIT: No Coursera-specific discussions found in target subreddits"
 
-    return safe_api_call("reddit_audience_insights", _fetch_reddit)
+    return safe_api_call("reddit_coursera_insights", _fetch_reddit)
 
 def send_slack(msg):
     """Send message to Slack"""
@@ -313,7 +333,7 @@ def main():
     
     # Get content
     meta_content = meta_ad()
-    reddit_content = reddit_audience_insights()  # Updated function name
+    reddit_content = reddit_coursera_insights()  # Updated function name
     
     # Build digest
     sections = []
