@@ -123,29 +123,29 @@ def reddit_coursera_insights():
 
         # COURSERA-SPECIFIC INSIGHT PATTERNS
         insight_patterns = {
-            "SUCCESS_WITH_COURSERA": {
+            "COURSERA_PROGRESS": {
                 "coursera_terms": ["coursera", "google certificate", "google it support", "ibm certificate", "andrew ng"],
-                "success_terms": ["got job", "hired", "landed", "career change", "promotion", "breakthrough"],
-                "emoji": "🎉",
+                "progress_terms": ["started", "taking", "enrolled in", "working on", "just began", "signed up", "trying out"],
+                "emoji": "📈",
                 "min_ups": 5
             },
             "COURSERA_DOUBTS": {
                 "coursera_terms": ["coursera", "online course", "certificate", "mooc"],
-                "doubt_terms": ["worth it", "waste of time", "legitimate", "employers recognize", "actually help"],
+                "doubt_terms": ["worth it", "waste of time", "legitimate", "employers recognize", "actually help", "does it count"],
                 "emoji": "🤔",
                 "min_ups": 8
             },
             "COURSERA_STRUGGLES": {
                 "coursera_terms": ["coursera", "online learning", "certificate program"],
-                "struggle_terms": ["struggling with", "hard to", "difficult", "overwhelmed", "stuck", "motivation"],
+                "struggle_terms": ["struggling with", "hard to", "difficult", "overwhelmed", "stuck", "motivation", "pissed off", "frustrated"],
                 "emoji": "😰",
                 "min_ups": 5
             },
             "COURSERA_RECOMMENDATIONS": {
                 "coursera_terms": ["coursera", "course recommendation", "which course", "best course"],
-                "rec_terms": ["recommend", "suggest", "best for", "should i take", "worth taking"],
+                "rec_terms": ["recommend", "suggest", "best for", "should i take", "worth taking", "good learning platforms"],
                 "emoji": "💡",
-                "min_ups": 10
+                "min_ups": 8
             }
         }
 
