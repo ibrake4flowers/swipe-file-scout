@@ -86,8 +86,8 @@ def meta_ad():
     return safe_api_call("meta_ad", _fetch_meta_ads)
 
 @rate_limit(delay=1.5)
-def reddit_insights():
-    """Smart Reddit search across top subreddits for different story types"""
+def reddit_audience_insights():
+    """Find audience pain points, motivations, and language for ad empathy"""
     def _fetch_reddit():
         client_id = os.environ.get("REDDIT_ID", "").strip()
         client_secret = os.environ.get("REDDIT_SECRET", "").strip()
@@ -114,190 +114,155 @@ def reddit_insights():
 
         headers = {"Authorization": f"bearer {token}", "User-Agent": "swipebot"}
 
-        # TOP SUBREDDITS for our core domains: business, tech, data, creative, AI/ML, high-income skills
+        # AUDIENCE EMPATHY SUBREDDITS - where people share real struggles and wins
         target_subreddits = [
-            # Core Coursera community
-            "Coursera",
-            
-            # Technology & Career Development
-            "ITCareerQuestions", 
-            "cscareerquestions",
-            "learnprogramming",
-            "webdev",
-            
-            # Data Science & Analytics
-            "DataScience",
-            "analytics", 
-            "MachineLearning",
-            
-            # Business & Professional Skills
-            "careeradvice",
-            "careerchange", 
-            "digitalnomad",
-            "marketing",
-            
-            # Creative & Design
-            "graphic_design",
-            "userexperience",
-            
-            # Learning & Skill Development
-            "getStudying",
-            "selfimprovement",
-            "AskCareerAdvice"
+            "careerchange", "careeradvice", "ITCareerQuestions", "cscareerquestions",
+            "getStudying", "selfimprovement", "digitalnomad", "marketing",
+            "DataScience", "learnprogramming", "AskCareerAdvice"
         ]
 
-        # STORY TYPES we're looking for with their patterns
-        story_patterns = {
-            "SUCCESS_STORY": {
-                "keywords": ["got job", "got hired", "landed job", "career success", "promotion", "job offer"],
-                "emoji": "✅",
+        # AUDIENCE INSIGHT PATTERNS - what we want to understand about our audience
+        insight_patterns = {
+            "PAIN_POINTS": {
+                "triggers": ["feeling stuck", "dead end", "hate my job", "burned out", "unfulfilled", 
+                           "career change", "switch careers", "need advice", "lost motivation"],
+                "emoji": "😤",
+                "min_ups": 15
+            },
+            "SUCCESS_STORIES": {
+                "triggers": ["landed", "got hired", "career change success", "finally did it", 
+                           "best decision", "changed my life", "so grateful", "dream job"],
+                "emoji": "🎉",
                 "min_ups": 10
             },
-            "PAIN_POINT": {
-                "keywords": ["why is it so hard", "can't find", "struggling to", "no luck", "rejected", "difficult to get"],
-                "emoji": "❗",
-                "min_ups": 25
-            },
-            "COURSE_COMPLETION": {
-                "keywords": ["completed coursera", "finished coursera", "earned certificate", "graduated from"],
-                "emoji": "📚",
-                "min_ups": 5
-            },
-            "ADVICE_SEEKING": {
-                "keywords": ["should i take", "is coursera worth", "which course", "recommendations"],
-                "emoji": "💡",
+            "LEARNING_MOTIVATION": {
+                "triggers": ["want to learn", "should i study", "worth learning", "how to start",
+                           "beginner advice", "roadmap", "skill development", "upskilling"],
+                "emoji": "🧠",
                 "min_ups": 8
             }
         }
 
-        found_stories = []
+        found_insights = []
 
-        # Search each subreddit
+        # Search each subreddit for general career/learning discussions (not just Coursera)
         for subreddit in target_subreddits:
-            logger.info(f"Searching r/{subreddit}...")
+            logger.info(f"Searching r/{subreddit} for audience insights...")
             
-            # Search for coursera mentions in the last week
-            search_url = (
-                f"https://oauth.reddit.com/r/{subreddit}/search?"
-                "q=coursera&sort=new&restrict_sr=on&t=week&limit=25"
-            )
+            # Broader search for career/learning discussions
+            search_queries = [
+                "career%20change%20OR%20switch%20careers%20OR%20new%20career",
+                "feeling%20stuck%20OR%20dead%20end%20OR%20unfulfilled",
+                "learn%20new%20skills%20OR%20upskilling%20OR%20reskilling"
+            ]
             
-            try:
-                resp = requests.get(search_url, headers=headers, timeout=10).json()
-                posts = resp.get("data", {}).get("children", [])
+            for query in search_queries:
+                search_url = (
+                    f"https://oauth.reddit.com/r/{subreddit}/search?"
+                    f"q={query}&sort=hot&restrict_sr=on&t=week&limit=15"
+                )
                 
-                logger.info(f"  Found {len(posts)} coursera posts")
-                
-                for post in posts:
-                    data = post.get("data", {})
-                    title = data.get("title", "")
-                    selftext = data.get("selftext", "")
-                    ups = data.get("ups", 0)
-                    created = data.get("created_utc", 0)
+                try:
+                    resp = requests.get(search_url, headers=headers, timeout=10).json()
+                    posts = resp.get("data", {}).get("children", [])
                     
-                    # Combine title and text for analysis
-                    full_text = (title + " " + selftext).lower()
-                    
-                    # Check against each story pattern
-                    for story_type, pattern in story_patterns.items():
-                        # Must have minimum upvotes
-                        if ups < pattern["min_ups"]:
-                            continue
-                            
-                        # Check if any keywords match
-                        keyword_match = any(keyword in full_text for keyword in pattern["keywords"])
+                    for post in posts:
+                        data = post.get("data", {})
+                        title = data.get("title", "")
+                        selftext = data.get("selftext", "")
+                        ups = data.get("ups", 0)
+                        created = data.get("created_utc", 0)
                         
-                        if keyword_match:
-                            # Additional logic for different story types
-                            if story_type == "SUCCESS_STORY":
-                                # Must mention coursera AND success
-                                if "coursera" in full_text and any(term in full_text for term in ["job", "hired", "career", "promotion"]):
-                                    found_stories.append({
-                                        "type": f"{pattern['emoji']} {story_type.replace('_', ' ')}",
-                                        "title": title,
-                                        "url": "https://reddit.com" + data.get("permalink", ""),
-                                        "upvotes": ups,
-                                        "subreddit": subreddit,
-                                        "score": ups * 3,  # Higher weight for success stories
-                                        "age_hours": (time.time() - created) / 3600
-                                    })
+                        # Combine title and text for analysis
+                        full_text = (title + " " + selftext).lower()
+                        
+                        # Check against each insight pattern
+                        for insight_type, pattern in insight_patterns.items():
+                            if ups < pattern["min_ups"]:
+                                continue
+                                
+                            # Check if any triggers match
+                            trigger_match = any(trigger in full_text for trigger in pattern["triggers"])
                             
-                            elif story_type == "PAIN_POINT":
-                                # Must be a question or complaint
-                                if title.endswith("?") or any(word in full_text for word in ["why", "how", "struggling"]):
-                                    found_stories.append({
-                                        "type": f"{pattern['emoji']} {story_type.replace('_', ' ')}",
-                                        "title": title,
-                                        "url": "https://reddit.com" + data.get("permalink", ""),
-                                        "upvotes": ups,
-                                        "subreddit": subreddit,
-                                        "score": ups * 2,  # Good for understanding pain points
-                                        "age_hours": (time.time() - created) / 3600
-                                    })
-                            
-                            elif story_type == "COURSE_COMPLETION":
-                                # Must NOT be a question, must show completion
-                                if not title.endswith("?") and any(word in full_text for word in ["completed", "finished", "done"]):
-                                    found_stories.append({
-                                        "type": f"{pattern['emoji']} {story_type.replace('_', ' ')}",
-                                        "title": title,
-                                        "url": "https://reddit.com" + data.get("permalink", ""),
-                                        "upvotes": ups,
-                                        "subreddit": subreddit,
-                                        "score": ups * 1.5,  # Social proof value
-                                        "age_hours": (time.time() - created) / 3600
-                                    })
-                            
-                            elif story_type == "ADVICE_SEEKING":
-                                # Must be a question
-                                if title.endswith("?"):
-                                    found_stories.append({
-                                        "type": f"{pattern['emoji']} {story_type.replace('_', ' ')}",
-                                        "title": title,
-                                        "url": "https://reddit.com" + data.get("permalink", ""),
-                                        "upvotes": ups,
-                                        "subreddit": subreddit,
-                                        "score": ups * 1,  # Lower priority
-                                        "age_hours": (time.time() - created) / 3600
-                                    })
-                            
-                            break  # Found a match, don't double-count
-                            
-            except Exception as e:
-                logger.warning(f"Error searching r/{subreddit}: {e}")
-                continue
+                            if trigger_match:
+                                # Extract meaningful quote from the post
+                                quote = ""
+                                if selftext and len(selftext) > 50:
+                                    # Get first meaningful sentence
+                                    sentences = selftext.split('.')
+                                    for sentence in sentences[:3]:
+                                        if len(sentence.strip()) > 30:
+                                            quote = sentence.strip()[:200] + "..."
+                                            break
+                                
+                                # Classify based on content analysis
+                                actual_type = "LEARNING_MOTIVATION"  # Default
+                                
+                                # Pain point detection
+                                pain_words = ["stuck", "hate", "unfulfilled", "burned out", "dead end", "miserable"]
+                                if any(word in full_text for word in pain_words):
+                                    actual_type = "PAIN_POINTS"
+                                
+                                # Success story detection  
+                                success_words = ["landed", "hired", "got the job", "success", "finally", "dream job", "best decision"]
+                                if any(word in full_text for word in success_words):
+                                    actual_type = "SUCCESS_STORIES"
+                                
+                                found_insights.append({
+                                    "type": actual_type,
+                                    "emoji": insight_patterns[actual_type]["emoji"],
+                                    "title": title,
+                                    "quote": quote if quote else title,
+                                    "url": "https://reddit.com" + data.get("permalink", ""),
+                                    "upvotes": ups,
+                                    "subreddit": subreddit,
+                                    "score": ups * (3 if actual_type == "PAIN_POINTS" else 2 if actual_type == "SUCCESS_STORIES" else 1),
+                                    "age_hours": (time.time() - created) / 3600
+                                })
+                                break  # Found a match for this post
+                                
+                except Exception as e:
+                    logger.warning(f"Error searching r/{subreddit}: {e}")
+                    continue
 
-        # Sort by score (upvotes * type multiplier) and recency
-        found_stories.sort(key=lambda x: x["score"] - (x["age_hours"] / 24), reverse=True)
+        # Sort by relevance and recency
+        found_insights.sort(key=lambda x: x["score"] - (x["age_hours"] / 48), reverse=True)
         
-        # Take top 3 different types
-        final_stories = []
+        # Get diverse insights - one of each type
+        final_insights = []
         used_types = set()
         
-        for story in found_stories:
-            story_type = story["type"].split()[1]  # Get type without emoji
-            if story_type not in used_types and len(final_stories) < 3:
-                final_stories.append(story)
-                used_types.add(story_type)
+        for insight in found_insights:
+            if insight["type"] not in used_types and len(final_insights) < 3:
+                final_insights.append(insight)
+                used_types.add(insight["type"])
         
-        # Format results
-        if final_stories:
+        # Format results with quotes for ad inspiration
+        if final_insights:
             formatted = []
-            for story in final_stories:
-                age_str = f"{story['age_hours']:.0f}h ago" if story['age_hours'] < 48 else f"{story['age_hours']/24:.0f}d ago"
+            for insight in final_insights:
+                age_str = f"{insight['age_hours']:.0f}h ago" if insight['age_hours'] < 48 else f"{insight['age_hours']/24:.0f}d ago"
+                
+                type_labels = {
+                    "PAIN_POINTS": "AUDIENCE PAIN POINT",
+                    "SUCCESS_STORIES": "SUCCESS STORY", 
+                    "LEARNING_MOTIVATION": "LEARNING MOTIVATION"
+                }
+                
                 formatted.append(
-                    f"{story['type']} - r/{story['subreddit']}\n"
-                    f"   {story['title'][:80]}{'...' if len(story['title']) > 80 else ''}\n"
-                    f"   {story['upvotes']} upvotes | Posted {age_str}\n"
-                    f"   {story['url']}"
+                    f"{insight['emoji']} {type_labels[insight['type']]} - r/{insight['subreddit']}\n"
+                    f"   Title: {insight['title'][:70]}{'...' if len(insight['title']) > 70 else ''}\n"
+                    f"   Quote: \"{insight['quote'][:150]}{'...' if len(insight['quote']) > 150 else ''}\"\n"
+                    f"   {insight['upvotes']} upvotes | Posted {age_str}\n"
+                    f"   {insight['url']}"
                 )
             
             return "\n\n".join(formatted)
         
-        logger.info(f"Searched {len(target_subreddits)} subreddits, found {len(found_stories)} total stories")
-        return "🔴 REDDIT: No relevant Coursera discussions found in target subreddits this week"
+        logger.info(f"Searched {len(target_subreddits)} subreddits for audience insights")
+        return "🔴 REDDIT: No audience insights found in target subreddits this week"
 
-    return safe_api_call("reddit_insights", _fetch_reddit)
+    return safe_api_call("reddit_audience_insights", _fetch_reddit)
 
 def send_slack(msg):
     """Send message to Slack"""
@@ -348,7 +313,7 @@ def main():
     
     # Get content
     meta_content = meta_ad()
-    reddit_content = reddit_insights()
+    reddit_content = reddit_audience_insights()  # Updated function name
     
     # Build digest
     sections = []
