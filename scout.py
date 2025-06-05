@@ -87,7 +87,7 @@ def meta_ad():
 
     return safe_api_call("meta_ad", _fetch_meta_ads)
 
-@rate_limit(delay=1.5)
+@rate_limit(delay=1)  # Reduced from 1.5 to 1 second
 def reddit_coursera_insights():
     """Find Coursera-specific audience insights: pain points, successes, and motivations"""
     def _fetch_reddit():
@@ -116,11 +116,10 @@ def reddit_coursera_insights():
 
         headers = {"Authorization": f"bearer {token}", "User-Agent": "swipebot"}
 
-        # COURSERA-FOCUSED SUBREDDITS where people discuss online learning
+        # STREAMLINED SUBREDDITS - focus on the best ones only
         target_subreddits = [
-            "Coursera", "ITCareerQuestions", "cscareerquestions", "learnprogramming",
-            "careerchange", "getStudying", "DataScience", "MachineLearning",
-            "careeradvice", "AskCareerAdvice", "digitalnomad"
+            "Coursera", "ITCareerQuestions", "careerchange", 
+            "learnprogramming", "DataScience"  # Just 5 instead of 11+
         ]
 
         # COURSERA-SPECIFIC INSIGHT PATTERNS
@@ -157,11 +156,11 @@ def reddit_coursera_insights():
         for subreddit in target_subreddits:
             logger.info(f"Searching r/{subreddit} for Coursera insights...")
             
-            # Search for Coursera mentions in the last 2 weeks (broader timeframe)
+            # Search for Coursera mentions - SMART search with OR queries but optimized
             search_url = (
                 f"https://oauth.reddit.com/r/{subreddit}/search?"
                 "q=coursera%20OR%20%22google%20certificate%22%20OR%20%22online%20course%22&"
-                "sort=hot&restrict_sr=on&t=month&limit=30"  # Last month, hot posts
+                "sort=hot&restrict_sr=on&t=week&limit=15"  # Week instead of month, 15 instead of 30
             )
             
             try:
@@ -180,10 +179,9 @@ def reddit_coursera_insights():
                     # Combine title and text for analysis
                     full_text = (title + " " + selftext).lower()
                     
-                    # Must mention Coursera or related terms
+                    # Must mention Coursera or related terms (faster check)
                     mentions_coursera = any(term in full_text for term in [
-                        "coursera", "google certificate", "google it support", "ibm certificate", 
-                        "andrew ng", "online course", "mooc", "certificate program"
+                        "coursera", "google certificate", "google it", "online course"  # Simplified list
                     ])
                     
                     if not mentions_coursera:
@@ -243,20 +241,14 @@ def reddit_coursera_insights():
         # Sort by relevance (score) and recency
         found_insights.sort(key=lambda x: x["score"] - (x["age_days"] / 7), reverse=True)
         
-        # Get diverse insights - prioritize different types
+        # Take top 2 different types (faster processing)
         final_insights = []
         used_types = set()
         
-        # First pass: get one of each type
         for insight in found_insights:
-            if insight["type"] not in used_types and len(final_insights) < 4:
+            if insight["type"] not in used_types and len(final_insights) < 2:
                 final_insights.append(insight)
                 used_types.add(insight["type"])
-        
-        # Second pass: fill remaining slots with best remaining
-        for insight in found_insights:
-            if len(final_insights) < 3 and insight not in final_insights:
-                final_insights.append(insight)
         
         # Format results with Coursera context
         if final_insights:
