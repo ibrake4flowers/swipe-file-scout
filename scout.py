@@ -200,26 +200,19 @@ def reddit_coursera_insights():
                                                                                 pattern.get("rec_terms", []))
                         
                         if has_coursera_term and has_pattern_term:
-                            # Extract meaningful quote
+                            # Extract meaningful quote (faster processing)
                             quote = ""
                             if selftext and len(selftext) > 100:
-                                # Find sentences that mention coursera or courses
-                                sentences = selftext.split('.')
+                                # Quick quote extraction - just first good sentence
+                                sentences = selftext.split('.')[:3]  # Only check first 3 sentences
                                 for sentence in sentences:
-                                    if any(term in sentence.lower() for term in ["coursera", "course", "certificate"]) and len(sentence.strip()) > 50:
-                                        quote = sentence.strip()[:300]
+                                    if len(sentence.strip()) > 50:
+                                        quote = sentence.strip()[:250]
                                         break
-                                
-                                # If no coursera-specific quote, get first meaningful sentence
-                                if not quote:
-                                    for sentence in sentences[:2]:
-                                        if len(sentence.strip()) > 50:
-                                            quote = sentence.strip()[:300]
-                                            break
                             
                             # Use title if no good quote found
                             if not quote:
-                                quote = title[:200]
+                                quote = title[:150]  # Shorter fallback
                             
                             found_insights.append({
                                 "type": insight_type,
@@ -326,7 +319,7 @@ def main():
     logger.info("Starting Swipe-File Scout...")
     
     # Get content
-    alt_ad_content = alternative_ad_inspiration()  # New alternative source
+    alt_ad_content = alternative_ad_inspiration()  # This function exists now
     reddit_content = reddit_coursera_insights()  # Updated function name
     
     # Build digest
