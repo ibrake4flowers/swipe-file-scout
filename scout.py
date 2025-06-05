@@ -7,6 +7,7 @@ import html
 import urllib.parse
 import time
 import logging
+import random
 from functools import wraps
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
@@ -35,59 +36,59 @@ def safe_api_call(func_name, api_call):
         logger.error(f"{func_name}: Error - {e}")
         return None
 
-@rate_limit(delay=2)
-def meta_ad():
-    """Meta ad search - simplified"""
-    def _fetch_meta_ads():
-        token = os.environ.get("FB_TOKEN", "").strip()
-        if not token:
-            return "🔴 *META ADS*: FB_TOKEN missing"
-
-        # Test token
-        test_url = f"https://graph.facebook.com/v18.0/me?access_token={token}"
-        try:
-            test_resp = requests.get(test_url, timeout=10)
-            if test_resp.status_code != 200:
-                return (
-            f"🔴 *META ADS*: {status_msg}"
-        )
-        except:
-            return "🔴 *META ADS*: Connection failed"
-
-        # Simple brand search
-        brands = ["Strava", "Peloton", "MasterClass"]
-        for brand in brands:
-            term = urllib.parse.quote(brand)
-            url = (
-                f"https://graph.facebook.com/v18.0/ads_archive?"
-                f"search_terms={term}&ad_reached_countries=US&ad_active_status=ACTIVE&"
-                "fields=ad_creative_body,ad_snapshot_url,impressions_lower_bound&"
-                f"limit=10&access_token={token}"
-            )
-            
-            try:
-                resp = requests.get(url, timeout=15)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    ads = data.get("data", [])
-                    if ads:
-                        ad = ads[0]  # Just take the first one
-                        body = html.unescape(ad.get("ad_creative_body", "")[:100])
-                        impressions = ad.get("impressions_lower_bound", "Unknown")
-                        return (
-                            f"🎯 *META AD INSPIRATION*\n"
-                            f"*Brand:* {brand}\n"
-                            f"*Impressions:* {impressions:,}\n"
-                            f"_{body}_\n"
-                        )
-            except:
-                continue
+@rate_limit(delay=1)
+def alternative_ad_inspiration():
+    """Find inspiring ads from alternative sources while waiting for Meta approval"""
+    def _fetch_alternative_ads():
         
-        return "🔴 *META ADS*: Pending FB approval (normal for new accounts)"
+        # Curated list of inspiring ad concepts (fallback)
+        inspiring_concepts = [
+            {
+                "concept": "Transformation Storytelling",
+                "description": "Before/after narratives showing career transformation",
+                "example": "Person stuck in dead-end job → thriving in new career after online learning",
+                "why": "Mirrors your Reddit insights about people feeling stuck"
+            },
+            {
+                "concept": "Expert Social Proof", 
+                "description": "Featuring recognizable instructors and university partnerships",
+                "example": "Learn from Stanford professors and Google engineers",
+                "why": "Leverages Coursera's unique partnerships vs competitors"
+            },
+            {
+                "concept": "Micro-Learning Moments",
+                "description": "Show bite-sized learning fitting into busy lives", 
+                "example": "15 minutes during lunch break = new skill building",
+                "why": "Addresses time constraints barrier from your Reddit research"
+            },
+            {
+                "concept": "Peer Success Stories",
+                "description": "Real student testimonials in authentic settings",
+                "example": "Recent graduate explaining career change in their new office",
+                "why": "Builds on the success stories you're finding in Reddit"
+            },
+            {
+                "concept": "Skills Gap Messaging",
+                "description": "Address the disconnect between current skills and dream job",
+                "example": "Bridge the gap between where you are and where you want to be",
+                "why": "Speaks to career transition anxiety found in Reddit discussions"
+            }
+        ]
+        
+        # Return a random inspiring concept
+        concept = random.choice(inspiring_concepts)
+        
+        return (
+            f"💡 *AD CONCEPT INSPIRATION*\n"
+            f"*{concept['concept']}*\n"
+            f"_{concept['description']}_\n"
+            f"*Example:* {concept['example']}\n"
+            f"*Why it works:* {concept['why']}\n"
+        )
 
-    return safe_api_call("meta_ad", _fetch_meta_ads)
+    return safe_api_call("alternative_ad_inspiration", _fetch_alternative_ads)
 
-@rate_limit(delay=1)  # Reduced from 1.5 to 1 second
+@rate_limit(delay=1)
 def reddit_coursera_insights():
     """Find Coursera-specific audience insights: pain points, successes, and motivations"""
     def _fetch_reddit():
@@ -119,7 +120,7 @@ def reddit_coursera_insights():
         # STREAMLINED SUBREDDITS - focus on the best ones only
         target_subreddits = [
             "Coursera", "ITCareerQuestions", "careerchange", 
-            "learnprogramming", "DataScience"  # Just 5 instead of 11+
+            "learnprogramming", "DataScience"
         ]
 
         # COURSERA-SPECIFIC INSIGHT PATTERNS
@@ -160,14 +161,17 @@ def reddit_coursera_insights():
             search_url = (
                 f"https://oauth.reddit.com/r/{subreddit}/search?"
                 "q=coursera%20OR%20%22google%20certificate%22%20OR%20%22online%20course%22&"
-                "sort=hot&restrict_sr=on&t=week&limit=15"  # Week instead of month, 15 instead of 30
+                "sort=hot&restrict_sr=on&t=week&limit=15"
             )
             
             try:
-                resp = requests.get(search_url, headers=headers, timeout=10).json()
+                resp = requests.get(search_url, headers=headers, timeout=5).json()
                 posts = resp.get("data", {}).get("children", [])
                 
-                logger.info(f"  Found {len(posts)} Coursera-related posts")
+                logger.info(f"  Found {len(posts)} posts (processing up to 10)")
+                
+                # Process only first 10 posts for speed
+                posts = posts[:10]
                 
                 for post in posts:
                     data = post.get("data", {})
@@ -181,7 +185,7 @@ def reddit_coursera_insights():
                     
                     # Must mention Coursera or related terms (faster check)
                     mentions_coursera = any(term in full_text for term in [
-                        "coursera", "google certificate", "google it", "online course"  # Simplified list
+                        "coursera", "google certificate", "google it", "online course"
                     ])
                     
                     if not mentions_coursera:
@@ -204,7 +208,7 @@ def reddit_coursera_insights():
                             quote = ""
                             if selftext and len(selftext) > 100:
                                 # Quick quote extraction - just first good sentence
-                                sentences = selftext.split('.')[:3]  # Only check first 3 sentences
+                                sentences = selftext.split('.')[:3]
                                 for sentence in sentences:
                                     if len(sentence.strip()) > 50:
                                         quote = sentence.strip()[:250]
@@ -212,7 +216,7 @@ def reddit_coursera_insights():
                             
                             # Use title if no good quote found
                             if not quote:
-                                quote = title[:150]  # Shorter fallback
+                                quote = title[:150]
                             
                             found_insights.append({
                                 "type": insight_type,
@@ -225,7 +229,7 @@ def reddit_coursera_insights():
                                 "score": ups * (2 if "DOUBTS" in insight_type else 2 if "STRUGGLES" in insight_type else 1),
                                 "age_days": (time.time() - created) / 86400
                             })
-                            break  # Found a match for this post
+                            break
                             
             except Exception as e:
                 logger.warning(f"Error searching r/{subreddit}: {e}")
@@ -319,8 +323,8 @@ def main():
     logger.info("Starting Swipe-File Scout...")
     
     # Get content
-    alt_ad_content = alternative_ad_inspiration()  # This function exists now
-    reddit_content = reddit_coursera_insights()  # Updated function name
+    alt_ad_content = alternative_ad_inspiration()
+    reddit_content = reddit_coursera_insights()
     
     # Build digest
     sections = []
