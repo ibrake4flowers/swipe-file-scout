@@ -1,0 +1,4 @@
+requests
+vaderSentiment
+python-dotenv
+beautifulsoup4
