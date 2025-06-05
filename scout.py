@@ -7,12 +7,60 @@ import html
 import urllib.parse
 import time
 import logging
+import hashlib
 from functools import wraps
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 analyser = SentimentIntensityAnalyzer()
+
+# File to store previously shared post IDs
+SHARED_POSTS_FILE = "shared_posts.json"
+
+def load_shared_posts():
+    """Load previously shared post IDs from file"""
+    try:
+        if os.path.exists(SHARED_POSTS_FILE):
+            with open(SHARED_POSTS_FILE, 'r') as f:
+                data = json.load(f)
+                # Clean up old entries (older than 30 days)
+                cutoff_time = time.time() - (30 * 24 * 60 * 60)
+                cleaned_data = {k: v for k, v in data.items() if v > cutoff_time}
+                return cleaned_data
+        return {}
+    except Exception as e:
+        logger.warning(f"Could not load shared posts file: {e}")
+        return {}
+
+def save_shared_posts(shared_posts):
+    """Save shared post IDs to file"""
+    try:
+        with open(SHARED_POSTS_FILE, 'w') as f:
+            json.dump(shared_posts, f)
+    except Exception as e:
+        logger.error(f"Could not save shared posts file: {e}")
+
+def create_post_id(post_data):
+    """Create a unique ID for a post based on title and content"""
+    title = post_data.get("title", "")
+    selftext = post_data.get("selftext", "")
+    reddit_id = post_data.get("id", "")
+    
+    # Use Reddit ID if available, otherwise create hash from content
+    if reddit_id:
+        return f"reddit_{reddit_id}"
+    else:
+        content = f"{title}_{selftext}"
+        return hashlib.md5(content.encode()).hexdigest()
+
+def is_post_already_shared(post_id, shared_posts):
+    """Check if a post has been shared before"""
+    return post_id in shared_posts
+
+def mark_post_as_shared(post_id, shared_posts):
+    """Mark a post as shared with current timestamp"""
+    shared_posts[post_id] = time.time()
 
 def rate_limit(delay=1):
     def decorator(func):
@@ -39,6 +87,10 @@ def safe_api_call(func_name, api_call):
 def reddit_coursera_insights():
     """Find Coursera-specific audience insights: pain points, successes, and motivations"""
     def _fetch_reddit():
+        # Load previously shared posts
+        shared_posts = load_shared_posts()
+        logger.info(f"Loaded {len(shared_posts)} previously shared posts")
+        
         client_id = os.environ.get("REDDIT_ID", "").strip()
         client_secret = os.environ.get("REDDIT_SECRET", "").strip()
         if not (client_id and client_secret):
@@ -99,6 +151,8 @@ def reddit_coursera_insights():
         }
 
         found_insights = []
+        new_posts_found = 0
+        duplicate_posts_skipped = 0
 
         # Search each subreddit specifically for Coursera discussions
         for subreddit in target_subreddits:
@@ -122,6 +176,14 @@ def reddit_coursera_insights():
                 
                 for post in posts:
                     data = post.get("data", {})
+                    
+                    # Check if we've already shared this post
+                    post_id = create_post_id(data)
+                    if is_post_already_shared(post_id, shared_posts):
+                        duplicate_posts_skipped += 1
+                        logger.info(f"  Skipping duplicate post: {data.get('title', '')[:50]}...")
+                        continue
+                    
                     title = data.get("title", "")
                     selftext = data.get("selftext", "")
                     ups = data.get("ups", 0)
@@ -138,49 +200,108 @@ def reddit_coursera_insights():
                     if not mentions_coursera:
                         continue
                     
-                    # Check against each insight pattern
-                    for insight_type, pattern in insight_patterns.items():
-                        if ups < pattern["min_ups"]:
-                            continue
-                        
-                        # Must mention both Coursera terms AND the specific pattern terms
-                        has_coursera_term = any(term in full_text for term in pattern["coursera_terms"])
-                        has_pattern_term = any(term in full_text for term in pattern.get("progress_terms", []) + 
-                                                                                pattern.get("doubt_terms", []) + 
-                                                                                pattern.get("struggle_terms", []) + 
-                                                                                pattern.get("rec_terms", []))
-                        
-                        if has_coursera_term and has_pattern_term:
-                            # Extract meaningful quote (faster processing)
-                            quote = ""
-                            if selftext and len(selftext) > 100:
-                                # Quick quote extraction - just first good sentence
-                                sentences = selftext.split('.')[:3]
-                                for sentence in sentences:
-                                    if len(sentence.strip()) > 50:
-                                        quote = sentence.strip()[:250]
-                                        break
-                            
-                            # Use title if no good quote found
-                            if not quote:
-                                quote = title[:150]
-                            
-                            found_insights.append({
-                                "type": insight_type,
-                                "emoji": pattern["emoji"],
-                                "title": title,
-                                "quote": quote,
-                                "url": "https://reddit.com" + data.get("permalink", ""),
-                                "upvotes": ups,
-                                "subreddit": subreddit,
-                                "score": ups * (2 if "DOUBTS" in insight_type else 2 if "STRUGGLES" in insight_type else 1),
-                                "age_days": (time.time() - created) / 86400
-                            })
-                            break
+                    # Better classification based on actual content
+                    title_lower = title.lower()
+                    full_text_lower = full_text.lower()
+                    
+                    # EXPLICIT pain point detection first
+                    pain_indicators = [
+                        "depressed", "burned out", "burnout", "feeling stuck", "done with", 
+                        "hate my job", "miserable", "trapped", "dead end", "fucked up"
+                    ]
+                    
+                    # EXPLICIT progress indicators
+                    progress_indicators = [
+                        "just started", "enrolled in", "signed up for", "taking coursera",
+                        "working through", "half way through", "making progress on"
+                    ]
+                    
+                    # EXPLICIT doubt indicators  
+                    doubt_indicators = [
+                        "worth it", "waste of time", "do employers", "actually help",
+                        "legitimate", "recognized", "does it count"
+                    ]
+                    
+                    # Classify based on actual content, not pattern matching
+                    actual_type = None
+                    
+                    # Check for pain points first (strongest signal)
+                    if any(indicator in full_text_lower for indicator in pain_indicators):
+                        actual_type = "COURSERA_STRUGGLES"
+                    
+                    # Check for explicit progress
+                    elif any(indicator in full_text_lower for indicator in progress_indicators):
+                        actual_type = "COURSERA_PROGRESS"
+                    
+                    # Check for doubts/questions
+                    elif any(indicator in full_text_lower for indicator in doubt_indicators):
+                        actual_type = "COURSERA_DOUBTS"
+                    
+                    # Check for seeking recommendations
+                    elif title.endswith("?") and any(word in title_lower for word in ["which", "best", "recommend", "should i"]):
+                        actual_type = "COURSERA_RECOMMENDATIONS"
+                    
+                    # Skip if we can't classify properly
+                    if not actual_type:
+                        continue
+                    
+                    # Must also meet the pattern requirements
+                    pattern = insight_patterns[actual_type]
+                    if ups < pattern["min_ups"]:
+                        continue
+                    
+                    # Must mention both Coursera terms AND have pattern terms
+                    has_coursera_term = any(term in full_text for term in pattern["coursera_terms"])
+                    has_pattern_term = any(term in full_text for term in pattern.get("progress_terms", []) + 
+                                                                            pattern.get("doubt_terms", []) + 
+                                                                            pattern.get("struggle_terms", []) + 
+                                                                            pattern.get("rec_terms", []))
+                    
+                    # REQUIRE Coursera mention for relevance
+                    if not has_coursera_term:
+                        logger.info(f"  Skipping '{title[:50]}...' - no Coursera mention")
+                        continue
+                    
+                    # Extract meaningful quote (faster processing)
+                    quote = ""
+                    if selftext and len(selftext) > 100:
+                        # Quick quote extraction - just first good sentence
+                        sentences = selftext.split('.')[:3]
+                        for sentence in sentences:
+                            if len(sentence.strip()) > 50:
+                                quote = sentence.strip()[:250]
+                                break
+                    
+                    # Use title if no good quote found
+                    if not quote:
+                        quote = title[:150]
+                    
+                    # This is a new post - mark it as shared
+                    mark_post_as_shared(post_id, shared_posts)
+                    new_posts_found += 1
+                    
+                    found_insights.append({
+                        "type": actual_type,  # Use our better classification
+                        "emoji": insight_patterns[actual_type]["emoji"],
+                        "title": title,
+                        "quote": quote,
+                        "url": "https://reddit.com" + data.get("permalink", ""),
+                        "upvotes": ups,
+                        "subreddit": subreddit,
+                        "score": ups * (3 if "STRUGGLES" in actual_type else 2 if "DOUBTS" in actual_type else 1),
+                        "age_days": (time.time() - created) / 86400,
+                        "post_id": post_id
+                    })
+                    break  # Found a match, move to next post
                             
             except Exception as e:
                 logger.warning(f"Error searching r/{subreddit}: {e}")
                 continue
+
+        # Save updated shared posts file
+        save_shared_posts(shared_posts)
+        
+        logger.info(f"Found {new_posts_found} new posts, skipped {duplicate_posts_skipped} duplicates")
 
         # Sort by relevance (score) and recency
         found_insights.sort(key=lambda x: x["score"] - (x["age_days"] / 7), reverse=True)
@@ -215,10 +336,15 @@ def reddit_coursera_insights():
                     f"🔗 {insight['url']}\n"
                 )
             
-            return "\n\n".join(formatted)
+            # Add stats about new vs duplicate posts
+            stats_msg = f"\n📊 *Stats:* {new_posts_found} new posts found, {duplicate_posts_skipped} duplicates skipped"
+            return "\n\n".join(formatted) + stats_msg
         
         logger.info(f"Searched {len(target_subreddits)} subreddits for Coursera insights")
-        return "🔴 *REDDIT*: No Coursera-specific discussions found in target subreddits"
+        if new_posts_found == 0 and duplicate_posts_skipped > 0:
+            return f"🔴 *REDDIT*: No new Coursera posts found ({duplicate_posts_skipped} duplicates skipped)"
+        else:
+            return "🔴 *REDDIT*: No Coursera-specific discussions found in target subreddits"
 
     return safe_api_call("reddit_coursera_insights", _fetch_reddit)
 
