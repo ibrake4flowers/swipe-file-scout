@@ -41,16 +41,18 @@ def meta_ad():
     def _fetch_meta_ads():
         token = os.environ.get("FB_TOKEN", "").strip()
         if not token:
-            return "🔴 META ADS: FB_TOKEN missing"
+            return "🔴 *META ADS*: FB_TOKEN missing"
 
         # Test token
         test_url = f"https://graph.facebook.com/v18.0/me?access_token={token}"
         try:
             test_resp = requests.get(test_url, timeout=10)
             if test_resp.status_code != 200:
-                return f"🔴 META ADS: Token invalid (HTTP {test_resp.status_code})"
+                return (
+            f"🔴 *META ADS*: {status_msg}"
+        )
         except:
-            return "🔴 META ADS: Connection failed"
+            return "🔴 *META ADS*: Connection failed"
 
         # Simple brand search
         brands = ["Strava", "Peloton", "MasterClass"]
@@ -73,15 +75,15 @@ def meta_ad():
                         body = html.unescape(ad.get("ad_creative_body", "")[:100])
                         impressions = ad.get("impressions_lower_bound", "Unknown")
                         return (
-                            f"🎯 META AD INSPIRATION\n"
-                            f"Brand: {brand}\n"
-                            f"Impressions: {impressions}\n"
-                            f"Hook: {body}..."
+                            f"🎯 *META AD INSPIRATION*\n"
+                            f"*Brand:* {brand}\n"
+                            f"*Impressions:* {impressions:,}\n"
+                            f"_{body}_\n"
                         )
             except:
                 continue
         
-        return "🔴 META ADS: Pending FB approval (normal for new accounts)"
+        return "🔴 *META ADS*: Pending FB approval (normal for new accounts)"
 
     return safe_api_call("meta_ad", _fetch_meta_ads)
 
@@ -92,7 +94,7 @@ def reddit_coursera_insights():
         client_id = os.environ.get("REDDIT_ID", "").strip()
         client_secret = os.environ.get("REDDIT_SECRET", "").strip()
         if not (client_id and client_secret):
-            return "🔴 REDDIT: Credentials missing"
+            return "🔴 *REDDIT*: Credentials missing"
 
         # Get token
         auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
@@ -108,9 +110,9 @@ def reddit_coursera_insights():
             ).json()
             token = token_resp.get("access_token")
             if not token:
-                return "🔴 REDDIT: Token failed"
+                return "🔴 *REDDIT*: Token failed"
         except:
-            return "🔴 REDDIT: Connection failed"
+            return "🔴 *REDDIT*: Connection failed"
 
         headers = {"Authorization": f"bearer {token}", "User-Agent": "swipebot"}
 
@@ -194,7 +196,7 @@ def reddit_coursera_insights():
                         
                         # Must mention both Coursera terms AND the specific pattern terms
                         has_coursera_term = any(term in full_text for term in pattern["coursera_terms"])
-                        has_pattern_term = any(term in full_text for term in pattern.get("success_terms", []) + 
+                        has_pattern_term = any(term in full_text for term in pattern.get("progress_terms", []) + 
                                                                                 pattern.get("doubt_terms", []) + 
                                                                                 pattern.get("struggle_terms", []) + 
                                                                                 pattern.get("rec_terms", []))
@@ -229,7 +231,7 @@ def reddit_coursera_insights():
                                 "url": "https://reddit.com" + data.get("permalink", ""),
                                 "upvotes": ups,
                                 "subreddit": subreddit,
-                                "score": ups * (3 if "SUCCESS" in insight_type else 2 if "DOUBTS" in insight_type else 1),
+                                "score": ups * (2 if "DOUBTS" in insight_type else 2 if "STRUGGLES" in insight_type else 1),
                                 "age_days": (time.time() - created) / 86400
                             })
                             break  # Found a match for this post
@@ -263,24 +265,24 @@ def reddit_coursera_insights():
                 age_str = f"{insight['age_days']:.0f}d ago" if insight['age_days'] >= 1 else "today"
                 
                 type_labels = {
-                    "SUCCESS_WITH_COURSERA": "COURSERA SUCCESS",
+                    "COURSERA_PROGRESS": "MAKING PROGRESS",
                     "COURSERA_DOUBTS": "COURSERA SKEPTICISM", 
                     "COURSERA_STRUGGLES": "LEARNING CHALLENGES",
                     "COURSERA_RECOMMENDATIONS": "COURSE SEEKING"
                 }
                 
                 formatted.append(
-                    f"{insight['emoji']} {type_labels[insight['type']]} - r/{insight['subreddit']}\n"
-                    f"   Title: {insight['title'][:70]}{'...' if len(insight['title']) > 70 else ''}\n"
-                    f"   Quote: \"{insight['quote'][:200]}{'...' if len(insight['quote']) > 200 else ''}\"\n"
-                    f"   {insight['upvotes']} upvotes | Posted {age_str}\n"
-                    f"   {insight['url']}"
+                    f"{insight['emoji']} *{type_labels[insight['type']]}* • r/{insight['subreddit']}\n"
+                    f"*{insight['title'][:70]}{'...' if len(insight['title']) > 70 else ''}*\n"
+                    f"_{insight['quote'][:180]}{'...' if len(insight['quote']) > 180 else ''}_\n"
+                    f"👍 {insight['upvotes']} upvotes • {age_str}\n"
+                    f"🔗 {insight['url']}\n"
                 )
             
             return "\n\n".join(formatted)
         
         logger.info(f"Searched {len(target_subreddits)} subreddits for Coursera insights")
-        return "🔴 REDDIT: No Coursera-specific discussions found in target subreddits"
+        return "🔴 *REDDIT*: No Coursera-specific discussions found in target subreddits"
 
     return safe_api_call("reddit_coursera_insights", _fetch_reddit)
 
@@ -342,15 +344,15 @@ def main():
     if reddit_content:
         sections.append(reddit_content)
     
-    if not sections:
-        sections.append("🔴 ALL APIS FAILED - Check credentials")
-    
-    # Simple, clean formatting for Slack
-    digest = "\n\n" + "="*50 + "\n\n".join([""] + sections) + "\n\n" + "="*50
+    # Clean, Slack-optimized formatting
+    digest = "\n\n".join(sections) if sections else "🔴 *ALL APIS FAILED* - Check credentials"
     
     # Send
     timestamp = datetime.date.today().strftime('%B %d, %Y')
-    full_msg = f"COURSERA AD DIGEST | {timestamp}" + digest
+    header = f"📊 *COURSERA AD DIGEST* | {timestamp}"
+    footer = "─" * 30 + "\n_Generated by Swipe-File Scout_"
+    
+    full_msg = f"{header}\n\n{digest}\n\n{footer}"
     
     # Try Slack first, then email
     if send_slack(full_msg):
