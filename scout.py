@@ -42,17 +42,24 @@ def save_shared_posts(shared_posts):
         logger.error(f"Could not save shared posts file: {e}")
 
 def create_post_id(post_data):
-    """Create a unique ID for a post based on title and content"""
-    title = post_data.get("title", "")
-    selftext = post_data.get("selftext", "")
+    """Create a unique ID for a post based on Reddit ID and URL"""
     reddit_id = post_data.get("id", "")
+    permalink = post_data.get("permalink", "")
     
-    # Use Reddit ID if available, otherwise create hash from content
+    # Always use Reddit ID as primary identifier
     if reddit_id:
         return f"reddit_{reddit_id}"
-    else:
-        content = f"{title}_{selftext}"
-        return hashlib.md5(content.encode()).hexdigest()
+    elif permalink:
+        # Extract ID from permalink as fallback
+        permalink_parts = permalink.split('/')
+        if len(permalink_parts) > 4:
+            return f"reddit_{permalink_parts[4]}"
+    
+    # Last resort: hash title + created time
+    title = post_data.get("title", "")
+    created = post_data.get("created_utc", 0)
+    content = f"{title}_{created}"
+    return f"hash_{hashlib.md5(content.encode()).hexdigest()[:12]}"
 
 def is_post_already_shared(post_id, shared_posts):
     """Check if a post has been shared before"""
@@ -122,31 +129,31 @@ def reddit_coursera_insights():
             "learnprogramming", "DataScience"
         ]
 
-        # COURSERA-SPECIFIC INSIGHT PATTERNS
+        # COURSERA-SPECIFIC INSIGHT PATTERNS - HIGHER UPVOTE THRESHOLDS
         insight_patterns = {
             "COURSERA_PROGRESS": {
                 "coursera_terms": ["coursera", "google certificate", "google it support", "ibm certificate", "andrew ng"],
                 "progress_terms": ["started", "taking", "enrolled in", "working on", "just began", "signed up", "trying out"],
                 "emoji": "📈",
-                "min_ups": 5
+                "min_ups": 15
             },
             "COURSERA_DOUBTS": {
                 "coursera_terms": ["coursera", "online course", "certificate", "mooc"],
                 "doubt_terms": ["worth it", "waste of time", "legitimate", "employers recognize", "actually help", "does it count"],
                 "emoji": "🤔",
-                "min_ups": 8
+                "min_ups": 20
             },
             "COURSERA_STRUGGLES": {
                 "coursera_terms": ["coursera", "online learning", "certificate program"],
                 "struggle_terms": ["struggling with", "hard to", "difficult", "overwhelmed", "stuck", "motivation", "pissed off", "frustrated"],
                 "emoji": "😰",
-                "min_ups": 5
+                "min_ups": 25  # Higher for struggles since they get more engagement
             },
             "COURSERA_RECOMMENDATIONS": {
                 "coursera_terms": ["coursera", "course recommendation", "which course", "best course"],
                 "rec_terms": ["recommend", "suggest", "best for", "should i take", "worth taking", "good learning platforms"],
                 "emoji": "💡",
-                "min_ups": 8
+                "min_ups": 20
             }
         }
 
@@ -181,7 +188,7 @@ def reddit_coursera_insights():
                     post_id = create_post_id(data)
                     if is_post_already_shared(post_id, shared_posts):
                         duplicate_posts_skipped += 1
-                        logger.info(f"  Skipping duplicate post: {data.get('title', '')[:50]}...")
+                        logger.info(f"  Skipping duplicate post ID {post_id}: {data.get('title', '')[:50]}...")
                         continue
                     
                     title = data.get("title", "")
@@ -248,6 +255,7 @@ def reddit_coursera_insights():
                     # Must also meet the pattern requirements
                     pattern = insight_patterns[actual_type]
                     if ups < pattern["min_ups"]:
+                        logger.info(f"  Skipping '{title[:50]}...' - only {ups} upvotes (need {pattern['min_ups']})")
                         continue
                     
                     # Must mention both Coursera terms AND have pattern terms
@@ -276,9 +284,10 @@ def reddit_coursera_insights():
                     if not quote:
                         quote = title[:150]
                     
-                    # This is a new post - mark it as shared
+                    # This is a new post that meets our criteria - mark it as shared
                     mark_post_as_shared(post_id, shared_posts)
                     new_posts_found += 1
+                    logger.info(f"  ✅ Added new post ID {post_id}: {title[:50]}... ({ups} upvotes)")
                     
                     found_insights.append({
                         "type": actual_type,  # Use our better classification
@@ -306,14 +315,16 @@ def reddit_coursera_insights():
         # Sort by relevance (score) and recency
         found_insights.sort(key=lambda x: x["score"] - (x["age_days"] / 7), reverse=True)
         
-        # Take top 3 different types (faster processing)
+        # Take top 5 different types for better variety, but ensure high quality
         final_insights = []
         used_types = set()
         
         for insight in found_insights:
-            if insight["type"] not in used_types and len(final_insights) < 3:
-                final_insights.append(insight)
-                used_types.add(insight["type"])
+            # Only include posts with significant engagement
+            if insight["upvotes"] >= 15 and len(final_insights) < 5:
+                if insight["type"] not in used_types or len(final_insights) < 3:
+                    final_insights.append(insight)
+                    used_types.add(insight["type"])
         
         # Format results with Coursera context
         if final_insights:
