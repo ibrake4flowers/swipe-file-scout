@@ -334,13 +334,13 @@ def main():
     logger.info("Starting Swipe-File Scout...")
     
     # Get content
-    meta_content = meta_ad()
+    alt_ad_content = alternative_ad_inspiration()  # New alternative source
     reddit_content = reddit_coursera_insights()  # Updated function name
     
     # Build digest
     sections = []
-    if meta_content:
-        sections.append(meta_content)
+    if alt_ad_content:
+        sections.append(alt_ad_content)
     if reddit_content:
         sections.append(reddit_content)
     
