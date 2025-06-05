@@ -7,7 +7,6 @@ import html
 import urllib.parse
 import time
 import logging
-import random
 from functools import wraps
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
@@ -35,102 +34,6 @@ def safe_api_call(func_name, api_call):
     except Exception as e:
         logger.error(f"{func_name}: Error - {e}")
         return None
-
-@rate_limit(delay=1)
-def reddit_ad_inspiration():
-    """Find actual creative campaigns and ad discussions from Reddit marketing communities"""
-    def _fetch_reddit_ads():
-        client_id = os.environ.get("REDDIT_ID", "").strip()
-        client_secret = os.environ.get("REDDIT_SECRET", "").strip()
-        if not (client_id and client_secret):
-            return "🔴 *AD INSPIRATION*: Reddit credentials missing"
-
-        # Get token
-        auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
-        data = {"grant_type": "client_credentials"}
-        
-        try:
-            token_resp = requests.post(
-                "https://www.reddit.com/api/v1/access_token",
-                auth=auth,
-                data=data,
-                headers={"User-Agent": "swipebot"},
-                timeout=10
-            ).json()
-            token = token_resp.get("access_token")
-            if not token:
-                return "🔴 *AD INSPIRATION*: Token failed"
-        except:
-            return "🔴 *AD INSPIRATION*: Connection failed"
-
-        headers = {"Authorization": f"bearer {token}", "User-Agent": "swipebot"}
-
-        # AD-FOCUSED SUBREDDITS with high-quality creative discussions
-        ad_subreddits = [
-            "advertising", "marketing", "copywriting", "socialmedia", "PPC"
-        ]
-
-        # Search for recent creative campaigns and successful ads
-        for subreddit in ad_subreddits:
-            search_queries = [
-                "brilliant%20campaign%20OR%20creative%20ad%20OR%20video%20ad",
-                "successful%20campaign%20OR%20viral%20ad%20OR%20effective%20marketing",
-                "campaign%20case%20study%20OR%20ad%20breakdown%20OR%20creative%20strategy"
-            ]
-            
-            for query in search_queries:
-                search_url = (
-                    f"https://oauth.reddit.com/r/{subreddit}/search?"
-                    f"q={query}&sort=hot&restrict_sr=on&t=week&limit=10"
-                )
-                
-                try:
-                    resp = requests.get(search_url, headers=headers, timeout=5).json()
-                    posts = resp.get("data", {}).get("children", [])
-                    
-                    for post in posts:
-                        data = post.get("data", {})
-                        title = data.get("title", "")
-                        selftext = data.get("selftext", "")
-                        ups = data.get("ups", 0)
-                        
-                        # Look for high-engagement posts about creative campaigns
-                        if ups >= 20 and any(word in title.lower() for word in [
-                            "brilliant", "creative", "campaign", "successful", "viral", "effective", "genius"
-                        ]):
-                            # Extract key insight from the post
-                            insight = ""
-                            if selftext and len(selftext) > 100:
-                                sentences = selftext.split('.')[:2]
-                                for sentence in sentences:
-                                    if len(sentence.strip()) > 40:
-                                        insight = sentence.strip()[:200]
-                                        break
-                            
-                            if not insight:
-                                insight = title[:150]
-                            
-                            return (
-                                f"🎨 *CREATIVE CAMPAIGN INSIGHT* • r/{subreddit}\n"
-                                f"*{title[:70]}{'...' if len(title) > 70 else ''}*\n"
-                                f"_{insight}{'...' if len(insight) == 200 else ''}_\n"
-                                f"👍 {ups} upvotes • from marketing community\n"
-                                f"🔗 https://reddit.com{data.get('permalink', '')}\n"
-                            )
-                            
-                except Exception as e:
-                    continue
-
-        # Fallback: Return a data-driven insight based on Reddit patterns
-        return (
-            f"📊 *AUDIENCE INSIGHT FROM REDDIT DATA*\n"
-            f"*Career Transition Anxiety is Universal*\n"
-            f"_Reddit shows consistent pattern: people feel 'stuck' and 'behind' in careers_\n"
-            f"*Ad opportunity:* Address the emotional weight of career change\n"
-            f"*Messaging:* 'You're not behind, you're just getting started'\n"
-        )
-
-    return safe_api_call("reddit_ad_inspiration", _fetch_reddit_ads)
 
 @rate_limit(delay=1)
 def reddit_coursera_insights():
@@ -282,12 +185,12 @@ def reddit_coursera_insights():
         # Sort by relevance (score) and recency
         found_insights.sort(key=lambda x: x["score"] - (x["age_days"] / 7), reverse=True)
         
-        # Take top 2 different types (faster processing)
+        # Take top 3 different types (faster processing)
         final_insights = []
         used_types = set()
         
         for insight in found_insights:
-            if insight["type"] not in used_types and len(final_insights) < 2:
+            if insight["type"] not in used_types and len(final_insights) < 3:
                 final_insights.append(insight)
                 used_types.add(insight["type"])
         
@@ -366,19 +269,14 @@ def send_email(msg):
 def main():
     logger.info("Starting Swipe-File Scout...")
     
-    # Get content
-    alt_ad_content = alternative_ad_inspiration()
+    # Get content - SIMPLIFIED to avoid function name issues
     reddit_content = reddit_coursera_insights()
     
-    # Build digest
-    sections = []
-    if alt_ad_content:
-        sections.append(alt_ad_content)
+    # Build digest - focus on Reddit insights only for now
     if reddit_content:
-        sections.append(reddit_content)
-    
-    # Clean, Slack-optimized formatting
-    digest = "\n\n".join(sections) if sections else "🔴 *ALL APIS FAILED* - Check credentials"
+        digest = reddit_content
+    else:
+        digest = "🔴 *NO INSIGHTS FOUND* - Check Reddit credentials"
     
     # Send
     timestamp = datetime.date.today().strftime('%B %d, %Y')
