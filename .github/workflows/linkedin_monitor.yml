@@ -1,0 +1,23 @@
+name: LinkedIn Success Story Monitor
+on:
+  workflow_dispatch:  # Manual trigger
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests vaderSentiment python-dotenv beautifulsoup4
+      - name: Run LinkedIn monitor
+        env:
+          EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
+          EMAIL_PW:      ${{ secrets.EMAIL_PW }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: python google_alerts_monitor.py
