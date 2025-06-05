@@ -1,10 +1,14 @@
-name: LinkedIn Success Story Monitor
+name: Weekly LinkedIn Success Story Monitor
 on:
-  workflow_dispatch:  # Manual trigger
+  schedule:
+    # Runs every Wednesday at 6 PM UTC (10 AM PST / 11 AM PDT)
+    # Pacific Time: 10 AM during standard time, 10 AM during daylight time
+    - cron: '0 18 * * 3'
+  workflow_dispatch:  # Still allows manual trigger
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15  # Increased timeout for email processing
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -15,9 +19,12 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install requests vaderSentiment python-dotenv beautifulsoup4
-      - name: Run LinkedIn monitor
+      - name: Run LinkedIn success story monitor
         env:
           EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
           EMAIL_PW:      ${{ secrets.EMAIL_PW }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
         run: python google_alerts_monitor.py
+      - name: Log completion
+        if: always()
+        run: echo "LinkedIn success story scan completed at $(date)"
