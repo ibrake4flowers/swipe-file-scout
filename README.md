@@ -1,7 +1,7 @@
 # Swipe-File Scout  🕵️‍♀️✨  
-A bi-weekly GitHub Actions workflow that drops three high-performing ad ideas
-(Promo Play, Learner Story, Fresh Spin) into a Slack channel.  
-Uses the Meta Ad Library, Reddit API, and Coursera RSS—completely free tier.
+A weekly GitHub Actions workflow that drops three high-performing ad ideas
+(Promo Play, Learner Story, Fresh Spin), top upvoted Reddit threads, and Linkedin Cert shares into a Slack channel.  
+Uses the Meta Ad Library, Reddit API, and Google alerts—completely free tier.
 
 ## Quick start
 1. **Fork → Settings → Secrets**  
